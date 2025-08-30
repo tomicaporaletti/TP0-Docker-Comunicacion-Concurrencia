@@ -7,8 +7,8 @@ if [[ $# -ne 2 ]]; then
   exit 1
 fi
 
-OUTPUT_FILE= "$1"
-NUM_CLIENTS= "$2"
+OUTPUT_FILE="$1"
+NUM_CLIENTS="$2"
 
 cat > "$OUTPUT_FILE" <<'YAML'
 name: tp0
