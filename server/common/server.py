@@ -24,6 +24,38 @@ class Server:
             client_sock = self.__accept_new_connection()
             self.__handle_client_connection(client_sock)
 
+    def __recv_until_new_line__(self, client_sock) -> str:
+        """
+        Lee hasta encontrar el salto de linea. 
+        Devuelve mensaje sin el "\n".
+        """
+        client_sock.settimeout(15)
+        buf = bytearray()
+        while True:
+            chunk = client_sock.recv(1024)
+            if not chunk:
+                raise ConnectionError("peer closed before newline")
+            buf += chunk
+            nl = buf.find(b"\n")
+            if nl != -1:
+                line = bytes(buf[:nl])
+                return line.decode("utf-8")
+
+    def __send_line__(self, client_sock, msg: str) -> None:
+        """
+        Envia msg echo al cliente asegurando entrega completa.
+        """
+        echo        = (msg + "\n").encode("utf-8")
+        total_sent  = 0
+
+        while total_sent < len(echo):
+            sent = client_sock.send(echo[total_sent:])
+            if sent == 0:
+                raise ConnectionError("socket closed while sending")
+            total_sent += sent
+
+
+
     def __handle_client_connection(self, client_sock):
         """
         Read message from a specific client socket and closes the socket
@@ -32,14 +64,14 @@ class Server:
         client socket will also be closed
         """
         try:
-            # TODO: Modify the receive to avoid short-reads
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
-            # TODO: Modify the send to avoid short-writes
-            client_sock.send("{}\n".format(msg).encode('utf-8'))
+            msg     = self.__recv_until_new_line__(client_sock)
+            addr    = client_sock.getpeername()
+            logging.info(
+                f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}'
+            )
+            self.__send_line__(client_sock, msg)
         except OSError as e:
-            logging.error("action: receive_message | result: fail | error: {e}")
+            logging.error(f"action: handle_client | result: fail | error: {e}") # Cambie el nombre de action para que sea mas descriptivo
         finally:
             client_sock.close()
 
