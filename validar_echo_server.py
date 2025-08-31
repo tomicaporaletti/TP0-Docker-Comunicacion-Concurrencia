@@ -6,7 +6,7 @@ subprocess.check_output
 Es una funcion de Python que ejecuta un 
 comando externo (como si lo escribieras en la terminal) 
 y te devuelve lo que imprime a stdout.
-Si el comando falla (código de salida ≠ 0), 
+Si el comando falla (código de salida != 0), 
 lanza subprocess.CalledProcessError.
 """
 
@@ -28,10 +28,12 @@ def lookup_docker_net():
     """
     Busca la red definida en el archivo DockerCompose.
     Comando equivalente en la Shell
-    docker network ls --format '{{.Name}}' | grep -E '_testing_net$' | head -n1
+    docker network ls --format '{{.Name}}'
+    1. docker network ls --format '{{.Name}}'   → lista solo los nombres de redes.
     """
     try:
         out = subprocess.check_output(["docker","network","ls","--format","{{.Name}}"], text=True)
+        # Iteramos para cada nombre de red y nos quedamos con el primero que termine con "_testing_net"
         netname = next((n for n in out.splitlines() if n.endswith("_testing_net")), "")
 
     except subprocess.CalledProcessError:
@@ -49,6 +51,15 @@ def validate_server(netname, port, msg):
     y esperando recibir el mismo de vuelta.
     Comando equivalente en la Shell
     docker run --rm --network <red> busybox sh -c "printf '%s\n' 'Hola' | nc -w 3 server 12345"
+    1. docker run --rm      → contenedor efímero (se borra al salir).
+    2. --network netname    → lo conecta a la misma red que tu server.
+    3. busybox              → imagen mínima que trae herramientas básicas.
+    4. sh -c "<comando>"    → dentro del contenedor corre un shell y ejecuta la línea entre comillas:
+        a. printf '%s\n' "mensaje" → imprime el mensaje con newline al final.
+        b. | nc -w 3 server {port} → lo pipea a nc (netcat), que:
+            i.   abre un socket TCP hacia el host server
+            ii.  por el puerto port
+            iii. -w 3 → timeout de 3 segundos (si no responde, corta).
     """
     try:
         resp = subprocess.check_output(

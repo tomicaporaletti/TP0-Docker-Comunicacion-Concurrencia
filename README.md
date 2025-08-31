@@ -157,6 +157,36 @@ En caso de que la validación sea exitosa imprimir: `action: test_echo_server | 
 
 El script deberá ubicarse en la raíz del proyecto. Netcat no debe ser instalado en la máquina _host_ y no se pueden exponer puertos del servidor para realizar la comunicación (hint: `docker network`). `
 
+### Ejecucion
+Desde la raiz del repositorio:
+1. Hacemos que el archivo bash sea ejecutable.
+```bash
+chmod +x validar-echo-server.sh
+```
+
+2. Ejecutar (mensaje opcional; por defecto envía "Hola"):
+```bash
+./validar-echo-server.sh
+./validar-echo-server.sh "Mensaje con espacios 123"
+```
+Ejemplo:
+```bash
+./generar-compose.sh docker-compose-dev.yaml 5
+```
+Eso te va a generar (o sobrescribir) un archivo docker-compose-dev.yaml con el server y 5 clientes.
+
+3. Salida esperada:
+- Exito:
+```bash
+action: test_echo_server | result: success
+```
+(exit code 0)
+- Falla:
+```bash
+action: test_echo_server | result: fail
+```
+(exit code 1)
+
 
 ### Ejercicio N°4:
 Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful_ al recibir la signal SIGTERM. Terminar la aplicación de forma _graceful_ implica que todos los _file descriptors_ (entre los que se encuentran archivos, sockets, threads y procesos) deben cerrarse correctamente antes que el thread de la aplicación principal muera. Loguear mensajes en el cierre de cada recurso (hint: Verificar que hace el flag `-t` utilizado en el comando `docker compose down`).
