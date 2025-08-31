@@ -124,6 +124,31 @@ make docker-compose-down   # apagar y limpiar
 ### Ejercicio N°2:
 Modificar el cliente y el servidor para lograr que realizar cambios en el archivo de configuración no requiera reconstruír las imágenes de Docker para que los mismos sean efectivos. La configuración a través del archivo correspondiente (`config.ini` y `config.yaml`, dependiendo de la aplicación) debe ser inyectada en el container y persistida por fuera de la imagen (hint: `docker volumes`).
 
+## ¿Por qué montar volúmenes para los archivos de configuración?
+
+En Docker las **imágenes** son inmutables: una vez construidas, no cambian.  
+Si el archivo `config.ini` o `config.yaml` está **copiado dentro de la imagen**, cada vez que modificás la config tenés que **reconstruir la imagen** (`docker build`) para que el cambio se vea. Eso es lento e innecesario.
+
+La solución es usar **volúmenes**:
+- La imagen contiene solo el **código/binarios**.
+- El archivo de configuración queda **afuera** (en tu repo local).
+- El `docker-compose.yaml` monta ese archivo dentro del contenedor:
+
+```yaml
+services:
+  server:
+    image: server:latest
+    environment:
+      - CONFIG_FILE=/config/config.ini
+    volumes:
+      - ./server/config.ini:/config/config.ini:ro
+```
+De esta manera:
+- Si cambiás config.ini o config.yaml, solo hay que recrear el contenedor (docker compose up -d), sin rebuild.
+- La misma imagen sirve para dev, test y prod: solo cambia el archivo de config montado.
+- El flag :ro asegura que el contenedor solo pueda leer la config (no modificarla).
+
+⚠️ Importante: si una variable existe tanto en un ENV del contenedor como en el archivo config, gana siempre la de ENV (precedencia). Por eso no no hay que duplicar valores entre Compose y los archivos de config.
 
 ### Ejercicio N°3:
 Crear un script de bash `validar-echo-server.sh` que permita verificar el correcto funcionamiento del servidor utilizando el comando `netcat` para interactuar con el mismo. Dado que el servidor es un echo server, se debe enviar un mensaje al servidor y esperar recibir el mismo mensaje enviado.
@@ -194,6 +219,40 @@ En este ejercicio es importante considerar los mecanismos de sincronización a u
 ### Ejercicio N°8:
 
 Modificar el servidor para que permita aceptar conexiones y procesar mensajes en paralelo. En caso de que el alumno implemente el servidor en Python utilizando _multithreading_,  deberán tenerse en cuenta las [limitaciones propias del lenguaje](https://wiki.python.org/moin/GlobalInterpreterLock).
+
+## TESTS
+### Primera vez corriendo los tests - SetUp
+1. Clonar el repo de tests:
+    ```bash
+    git clone git@github.com:7574-sistemas-distribuidos/tp0-tests.git
+    cd tp0-tests
+    ```
+2. Crear y activar un entorno virtual de Python:
+    ```bash
+    sudo apt install python3.12-venv
+    python3 -m venv .venv
+    source .venv/bin/activate
+    ```
+3. Instalar dependencias:
+    ```bash
+    pip install -r requirements.txt
+    ```
+### Ejecucion tests
+Una vez ya tengamos todo instalado, desde el entorno virtual podemos ya ejecutar los tests.
+- Si no estas en el entorno virtual tenes que hacer:
+    ```
+    source .venv/bin/activate
+    ```
+
+4. Exportar la variable REPO_PATH apuntando a la raíz de tu TP (el repo donde está tu Makefile, server/, client/, etc.):
+    ```bash
+    export REPO_PATH=<Ruta Completa a la raiz del proyecto>
+    ```
+
+5. Ejecutar los tests:
+    ```bash
+    pytest -v
+    ```
 
 ## Condiciones de Entrega
 Se espera que los alumnos realicen un _fork_ del presente repositorio para el desarrollo de los ejercicios y que aprovechen el esqueleto provisto tanto (o tan poco) como consideren necesario.

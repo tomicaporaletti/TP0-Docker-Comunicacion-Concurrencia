@@ -44,25 +44,21 @@ func InitConfig() (*viper.Viper, error) {
 	// return an error in that case
 	candidates := []string{
 		os.Getenv("CONFIG_FILE"),
+		"/config/config.yaml", 
 		"./client/config.yaml",  
 		"./config.yaml",         
 	}
 	for _, p := range candidates {
-		if p == "" {
-			continue
-		}
+		if p == "" {continue}
 		if _, err := os.Stat(p); err == nil {
 			v.SetConfigFile(p)
 			if err := v.ReadInConfig(); err != nil {
-				// si el archivo existe pero falla parseo → error real
-				return nil, errors.Wrap(err, "no se pudo leer config")
+				// si el archivo existe pero falla parseo
+				fmt.Printf("Configuration could not be read from config file. Using env variables instead")
+				return nil, errors.Wrap(err, "Configuration could not be read from config file.")
 			}
 			break
 		}
-	}
-	
-	if err := v.ReadInConfig(); err != nil {
-		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
 	}
 
 	// Parse time.Duration variables and return an error if those variables cannot be parsed
