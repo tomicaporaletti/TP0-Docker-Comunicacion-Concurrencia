@@ -20,8 +20,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOGGING_LEVEL=DEBUG
+      - CONFIG_FILE=/config/config.ini
     networks:
       - testing_net
+    volumes:
+      - ./server/config.ini:/config/config.ini:ro
 YAML
 
 
@@ -36,6 +39,9 @@ for i in $(seq 1 "$NUM_CLIENTS"); do
     environment:
       - CLI_ID=${i}
       - CLI_LOG_LEVEL=DEBUG
+      - CONFIG_FILE=/config/config.yaml
+    volumes:
+      - ./client/config.yaml:/config/config.yaml:ro
     networks:
       - testing_net
     depends_on:

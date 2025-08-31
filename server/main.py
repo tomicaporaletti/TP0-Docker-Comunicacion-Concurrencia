@@ -19,7 +19,15 @@ def initialize_config():
 
     config = ConfigParser(os.environ)
     # If config.ini does not exists original config object is not modified
-    config.read("config.ini")
+    candidate_paths = [
+        os.getenv("CONFIG_FILE"),
+        "/config/config.ini",
+    ]
+    config_path = next((p for p in candidate_paths if p and os.path.exists(p)), None)
+    if not os.path.exists(config_path):
+        raise FileNotFoundError("File not found config.ini (CONFIG_FILE, /config/config.ini)")
+
+    config.read(config_path)
 
     config_params = {}
     try:

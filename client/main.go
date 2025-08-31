@@ -42,7 +42,25 @@ func InitConfig() (*viper.Viper, error) {
 	// does not exists then ReadInConfig will fail but configuration
 	// can be loaded from the environment variables so we shouldn't
 	// return an error in that case
-	v.SetConfigFile("./config.yaml")
+	candidates := []string{
+		os.Getenv("CONFIG_FILE"),
+		"./client/config.yaml",  
+		"./config.yaml",         
+	}
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err == nil {
+			v.SetConfigFile(p)
+			if err := v.ReadInConfig(); err != nil {
+				// si el archivo existe pero falla parseo → error real
+				return nil, errors.Wrap(err, "no se pudo leer config")
+			}
+			break
+		}
+	}
+	
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
 	}

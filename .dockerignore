@@ -1,0 +1,10 @@
+.git
+.gitignore
+**/__pycache__/
+**/*.pyc
+node_modules
+bin
+dist
+# Evitar que se consuman los archivos config desde los dockerfiles
+server/config.ini
+client/config.yaml
