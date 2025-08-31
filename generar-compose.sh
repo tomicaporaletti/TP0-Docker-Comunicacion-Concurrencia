@@ -19,7 +19,6 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - LOGGING_LEVEL=DEBUG
       - CONFIG_FILE=/config/config.ini
     networks:
       - testing_net
@@ -38,7 +37,6 @@ for i in $(seq 1 "$NUM_CLIENTS"); do
     entrypoint: /client
     environment:
       - CLI_ID=${i}
-      - CLI_LOG_LEVEL=DEBUG
       - CONFIG_FILE=/config/config.yaml
     volumes:
       - ./client/config.yaml:/config/config.yaml:ro
