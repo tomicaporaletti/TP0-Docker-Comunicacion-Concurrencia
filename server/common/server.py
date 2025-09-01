@@ -1,5 +1,7 @@
 import socket
 import logging
+import sys
+
 
 
 class Server:
@@ -8,6 +10,9 @@ class Server:
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_socket.settimeout(1.0)
+        self._shutdown = False
 
     def run(self):
         """
@@ -17,12 +22,27 @@ class Server:
         communication with a client. After client with communucation
         finishes, servers starts to accept new connections again
         """
+        logging.info("action: server_start | result: success")
+        try:
+            while not self._shutdown:
+                try:
+                    client_sock = self.__accept_new_connection()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
 
-        # TODO: Modify this program to handle signal to graceful shutdown
-        # the server
-        while True:
-            client_sock = self.__accept_new_connection()
-            self.__handle_client_connection(client_sock)
+                self.__handle_client_connection(client_sock)
+        finally:
+            self._graceful_shut()
+
+
+    def request_shutdown(self, signum=None, frame=None):
+        """Handler para SIGTERM: marca shutdown."""
+        logging.info(f"action: signal | type: {signum} | result: received")
+        self._shutdown = True
+
+
 
     def __recv_until_new_line__(self, client_sock) -> str:
         """
@@ -82,9 +102,18 @@ class Server:
         Function blocks until a connection to a client is made.
         Then connection created is printed and returned
         """
-
-        # Connection arrived
-        logging.info('action: accept_connections | result: in_progress')
         c, addr = self._server_socket.accept()
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
+
+
+    def _graceful_shut(self):
+        """
+        Cierra el listening socket y loguea el shutdown.
+        """
+        try:
+            self._server_socket.close()
+            logging.info("action: server_socket_close | result: success")
+        except OSError as e:
+            logging.error(f"action: server_socket_close | result: fail | error: {e}")
+        logging.info("action: server_stop | result: success")

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 from configparser import ConfigParser
+import signal
+import sys
 from common.server import Server
 import logging
 import os
@@ -57,7 +59,11 @@ def main():
 
     # Initialize server and start server loop
     server = Server(port, listen_backlog)
+    signal.signal(signal.SIGTERM, server.request_shutdown)
+    signal.signal(signal.SIGINT, server.request_shutdown)
     server.run()
+    sys.exit(0)
+
 
 def initialize_log(logging_level):
     """
