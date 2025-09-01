@@ -40,7 +40,7 @@ class Server:
     def request_shutdown(self, signum=None, frame=None):
         """Handler para SIGTERM: marca shutdown."""
         sig_name = "SIGTERM" if signum == 15 else str(signum)
-        logging.info(f"action: signal | signal: {sig_name} | result: success")
+        logging.info(f"action: signal | result: success | signal: {sig_name}")
         self._shutdown = True
 
 
