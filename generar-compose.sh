@@ -24,6 +24,10 @@ services:
       - testing_net
     volumes:
       - ./server/config.ini:/config/config.ini:ro
+
+    stop_signal: SIGTERM          # señal que se envía al detener
+    stop_grace_period: 5s         # tiempo para que haga shutdown limpio
+    restart: "on-failure:3"       # reintenta hasta 3 veces si muere con exit != 0
 YAML
 
 
