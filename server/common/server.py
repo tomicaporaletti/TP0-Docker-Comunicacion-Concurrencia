@@ -116,4 +116,4 @@ class Server:
             logging.info("action: server_socket_close | result: success")
         except OSError as e:
             logging.error(f"action: server_socket_close | result: fail | error: {e}")
-        logging.info("action: server_stop | result: success")
+        logging.info("action: exit | result: success")   # <--- NECESARIO PARA LOS TESTS
