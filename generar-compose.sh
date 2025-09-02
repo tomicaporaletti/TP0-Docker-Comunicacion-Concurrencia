@@ -42,6 +42,12 @@ for i in $(seq 1 "$NUM_CLIENTS"); do
     environment:
       - CLI_ID=${i}
       - CONFIG_FILE=/config/config.yaml
+      # Variables de la apuesta
+      - NOMBRE=Juan
+      - APELLIDO=Perez
+      - DOCUMENTO=12345678
+      - NACIMIENTO=1990-01-01
+      - NUMERO=7574
     volumes:
       - ./client/config.yaml:/config/config.yaml:ro
     networks:
