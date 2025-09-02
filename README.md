@@ -237,6 +237,45 @@ Se deberá implementar un módulo de comunicación entre el cliente y el servido
 * Correcta separación de responsabilidades entre modelo de dominio y capa de comunicación.
 * Correcto empleo de sockets, incluyendo manejo de errores y evitando los fenómenos conocidos como [_short read y short write_](https://cs61.seas.harvard.edu/site/2018/FileDescriptors/).
 
+### Formato de mensaje – Bet (cliente → servidor)
+```bash
+[1 byte]      type          (1 = bet)
+[4 bytes]     agency        (entero big-endian)
+[1 byte + N]  document      (longitud + contenido UTF-8)
+[1 byte + N]  first_name    (longitud + contenido UTF-8)
+[1 byte + N]  last_name     (longitud + contenido UTF-8)
+[1 byte + N]  birthdate     (longitud + contenido UTF-8, formato YYYY-MM-DD)
+[4 bytes]     number        (entero big-endian)
+```
+Ejemplo:
+```bash
+01 | 00 00 00 01 | 08 "30904465" | 08 "Santiago" | 05 "Lorca" | 10 "1999-03-17" | 00 00 1D 96
+```
+
+### Formato de mensaje – Confirmation (servidor → cliente)
+```bash
+[1 byte] type   (100 = confirmation)
+[1 byte] result (1 = success, 0 = fail)
+```
+Ejemplo (De exito):
+```bash
+64 | 01
+```
+
+### Como correrlo
+1. Generar el docker-compose con la cantidad de clientes:
+```bash
+./generar-compose.sh docker-compose-dev.yaml 1
+```
+2. Levantar los servicios:
+```bash
+docker compose -f docker-compose-dev.yaml up --build
+```
+
+3. Observar los logs en tiempo real:
+```bash
+docker compose -f docker-compose-dev.yaml logs -f
+```
 
 ### Ejercicio N°6:
 Modificar los clientes para que envíen varias apuestas a la vez (modalidad conocida como procesamiento por _chunks_ o _batchs_). 
