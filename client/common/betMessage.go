@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"os"
 	"strconv"
 )
@@ -35,11 +34,3 @@ func NewBetFromEnv(agency string) (*BetMessage, error) {
 	}, nil
 }
 
-// Serialize serializa la apuesta como JSON terminado en '\n'
-func (b *BetMessage) Serialize() (string, error) {
-	data, err := json.Marshal(b)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}

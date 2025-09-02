@@ -1,7 +1,7 @@
 import socket
 import logging
-import json
 import utils as u
+import protocol as p
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -43,65 +43,19 @@ class Server:
         self._shutdown = True
 
 
-    def __recv_until_new_line__(self, client_sock) -> str:
-        """
-        Lee hasta encontrar el salto de linea. 
-        Devuelve mensaje sin el "\n".
-        """
-        client_sock.settimeout(15)
-        buf = bytearray()
-        while True:
-            chunk = client_sock.recv(1024)
-            if not chunk:
-                raise ConnectionError("peer closed before newline")
-            buf += chunk
-            nl = buf.find(b"\n")
-            if nl != -1:
-                line = bytes(buf[:nl])
-                return line.decode("utf-8")
-
-
-    def __send_line__(self, client_sock, msg: str) -> None:
-        """
-        Envia msg echo al cliente asegurando entrega completa.
-        """
-        echo        = (msg + "\n").encode("utf-8")
-        total_sent  = 0
-
-        while total_sent < len(echo):
-            sent = client_sock.send(echo[total_sent:])
-            if sent == 0:
-                raise ConnectionError("socket closed while sending")
-            total_sent += sent
-
-
     def __handle_client_connection(self, client_sock):
-        """
-        Read message from a specific client socket and closes the socket
-
-        If a problem arises in the communication with the client, the
-        client socket will also be closed
-        """
         try:
-            msg         = self.__recv_until_new_line__(client_sock)
-            addr        = client_sock.getpeername()
-            resp        = self.__process_msg(msg)
-            resp_json   = json.dumps(resp)
-            self.__send_line__(client_sock, resp_json)
-        except OSError as e:
-            logging.error(f"action: handle_client | result: fail | error: {e}") # Cambie el nombre de action para que sea mas descriptivo
+            data = p.recv_message(client_sock)
+            resp = self.__process_msg(data)
+            p.send_confirmation(client_sock, resp.get("result") == "success")
+        except Exception as e:
+            logging.error(f"action: handle_client | result: fail | error: {e}")
         finally:
             client_sock.close()
 
 
-    def __process_msg(self, msg: str) -> dict:
+    def __process_msg(self, data: dict) -> dict:
         """Procesa un mensaje JSON y delega según el type."""
-        try:
-            data = json.loads(msg)
-        except json.JSONDecodeError as e:
-            logging.error(f"action: process_msg | result: fail | error: invalid_json | detail: {e}")
-            return {"type": "error", "reason": "invalid_json"}
-
         msg_type = data.get("type")
         if msg_type == "bet":
             return self._handle_bet(data)
