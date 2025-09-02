@@ -1,8 +1,7 @@
 import socket
 import logging
-import sys
-
-
+import json
+import utils as u
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -44,7 +43,6 @@ class Server:
         self._shutdown = True
 
 
-
     def __recv_until_new_line__(self, client_sock) -> str:
         """
         Lee hasta encontrar el salto de linea. 
@@ -62,6 +60,7 @@ class Server:
                 line = bytes(buf[:nl])
                 return line.decode("utf-8")
 
+
     def __send_line__(self, client_sock, msg: str) -> None:
         """
         Envia msg echo al cliente asegurando entrega completa.
@@ -76,7 +75,6 @@ class Server:
             total_sent += sent
 
 
-
     def __handle_client_connection(self, client_sock):
         """
         Read message from a specific client socket and closes the socket
@@ -85,16 +83,58 @@ class Server:
         client socket will also be closed
         """
         try:
-            msg     = self.__recv_until_new_line__(client_sock)
-            addr    = client_sock.getpeername()
-            logging.info(
-                f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}'
-            )
-            self.__send_line__(client_sock, msg)
+            msg         = self.__recv_until_new_line__(client_sock)
+            addr        = client_sock.getpeername()
+            resp        = self.__process_msg(msg)
+            resp_json   = json.dumps(resp)
+            self.__send_line__(client_sock, resp_json)
         except OSError as e:
             logging.error(f"action: handle_client | result: fail | error: {e}") # Cambie el nombre de action para que sea mas descriptivo
         finally:
             client_sock.close()
+
+
+    def __process_msg(self, msg: str) -> dict:
+        """Procesa un mensaje JSON y delega según el type."""
+        try:
+            data = json.loads(msg)
+        except json.JSONDecodeError as e:
+            logging.error(f"action: process_msg | result: fail | error: invalid_json | detail: {e}")
+            return {"type": "error", "reason": "invalid_json"}
+
+        msg_type = data.get("type")
+        if msg_type == "bet":
+            return self._handle_bet(data)
+        else:
+            logging.error(f"action: process_msg | result: fail | error: unknown_type | type: {msg_type}")
+            return {"type": "error", "reason": "unknown_type"}
+
+
+    def _handle_bet(self, data: dict) -> dict:
+        """Procesa un mensaje con type=bet."""
+        try:
+            bet = self._parse_bet(data)
+            u.store_bets([bet])  # store_bets espera lista
+            logging.info(
+                f"action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}"
+            )
+            return {"type": "confirmation", "result": "success"}
+        except Exception as e:
+            logging.error(f"action: handle_bet | result: fail | error: {e}")
+            return {"type": "error", "reason": "invalid_bet"}
+
+
+    def _parse_bet(self, data: dict) -> u.Bet:
+        """Convierte un dict a una instancia de Bet validada."""
+        return u.Bet(
+            agency      =  data["agency"],
+            first_name  =  data["first_name"],
+            last_name   =  data["last_name"],
+            document    =  data["document"],
+            birthdate   =  data["birthdate"],
+            number      =  data["number"],
+        )
+
 
     def __accept_new_connection(self):
         """

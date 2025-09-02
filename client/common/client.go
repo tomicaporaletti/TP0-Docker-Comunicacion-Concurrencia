@@ -3,6 +3,7 @@ package common
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
@@ -11,6 +12,14 @@ import (
 )
 
 var log = logging.MustGetLogger("log")
+
+// estructura mínima para parsear la respuesta
+type Response struct {
+	Type   string `json:"type"`
+	Result string `json:"result"`
+	Reason string `json:"reason,omitempty"`
+}
+
 
 // ClientConfig Configuration used by the client
 type ClientConfig struct {
@@ -86,33 +95,79 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 }
 
 
-// Una iteración: conectar → enviar → leer → cerrar
+// runIteration: conectar → enviar apuesta → leer respuesta → cerrar
 func (c *Client) runIteration(msgID int) error {
 	if err := c.createClientSocket(); err != nil {
 		return err
 	}
 	_ = c.conn.SetDeadline(time.Now().Add(15 * time.Second))
 
-	line := fmt.Sprintf("[CLIENT %v] Message N°%v", c.config.ID, msgID)
-	if err := writeAll(c.conn, line); err != nil {
-		log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
+	// Construir y mandar apuesta
+	bet, payload, err := c.buildPayload()
+	if err != nil {
 		c.conn.Close()
 		return err
 	}
 
-	msg, err := bufio.NewReader(c.conn).ReadString('\n')
-	c.conn.Close()
-	if err != nil {
-		log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
+	if err := writeAll(c.conn, payload); err != nil {
+		c.logFail("send_message", bet.Document, bet.Number, err)
+		c.conn.Close()
 		return err
 	}
 
-	log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-		c.config.ID, msg)
+	// Leer confirmación
+	resp, err := bufio.NewReader(c.conn).ReadString('\n')
+	c.conn.Close()
+	if err != nil {
+		c.logFail("receive_message", bet.Document, bet.Number, err)
+		return err
+	}
+
+	c.handleResponse(resp, bet)
 	return nil
 }
+
+
+// buildPayload construye la apuesta desde env y la serializa
+func (c *Client) buildPayload() (*BetMessage, string, error) {
+	bet, err := NewBetFromEnv(c.config.ID)
+	if err != nil {
+		log.Errorf("action: build_bet | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return nil, "", err
+	}
+	payload, err := bet.Serialize()
+	if err != nil {
+		log.Errorf("action: serialize_bet | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return nil, "", err
+	}
+	return bet, payload, nil
+}
+
+
+func (c *Client) handleResponse(resp string, bet *BetMessage) {
+	var r Response
+	if err := json.Unmarshal([]byte(resp), &r); err != nil {
+		log.Errorf("action: parse_response | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return
+	}
+
+	if r.Result == "success" {
+		log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+			bet.Document, bet.Number)
+	} else {
+		log.Errorf("action: apuesta_enviada | result: fail | dni: %v | numero: %v | reason: %v",
+			bet.Document, bet.Number, r.Reason)
+	}
+}
+// logFail helper genérico de error
+func (c *Client) logFail(action, dni string, numero int, err error) {
+	log.Errorf("action: %s | result: fail | client_id: %v | dni: %v | numero: %v | error: %v",
+		action, c.config.ID, dni, numero, err)
+}
+
 
 
 // Cleanup final
