@@ -114,6 +114,8 @@ func (c *Client) runIteration(msgID int) error {
 		c.conn.Close()
 		return err
 	}
+	log.Infof("action: apuesta_enviada | result: success | dni: %s | numero: %d", bet.Document, bet.Number)
+
 
 	// Leer confirmación
 	resp, err := bufio.NewReader(c.conn).ReadString('\n')
