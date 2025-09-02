@@ -1,7 +1,7 @@
 import socket
 import logging
-import utils as u
-import protocol as p
+from . import utils as u
+from . import protocol as p
 
 class Server:
     def __init__(self, port, listen_backlog):

@@ -6,9 +6,15 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - LOGGING_LEVEL=DEBUG
+      - CONFIG_FILE=/config/config.ini
     networks:
       - testing_net
+    volumes:
+      - ./server/config.ini:/config/config.ini:ro
+
+    stop_signal: SIGTERM          # señal que se envía al detener
+    stop_grace_period: 5s         # tiempo para que haga shutdown limpio
+    restart: "on-failure:3"       # reintenta hasta 3 veces si muere con exit != 0
 
   client1:
     container_name: client1
@@ -16,7 +22,15 @@ services:
     entrypoint: /client
     environment:
       - CLI_ID=1
-      - CLI_LOG_LEVEL=DEBUG
+      - CONFIG_FILE=/config/config.yaml
+      # Variables de la apuesta
+      - NOMBRE=Juan
+      - APELLIDO=Perez
+      - DOCUMENTO=12345678
+      - NACIMIENTO=1990-01-01
+      - NUMERO=7574
+    volumes:
+      - ./client/config.yaml:/config/config.yaml:ro
     networks:
       - testing_net
     depends_on:
