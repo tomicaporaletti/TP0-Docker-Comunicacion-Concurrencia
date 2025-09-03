@@ -3,7 +3,10 @@ import socket
 # --- Constantes del protocolo ---
 MSG_TYPE_BET        = 1
 MSG_TYPE_BATCH      = 2
+MSG_TYPE_NOTIFY_END = 3
+MSG_TYPE_QUERY_WIN  = 4
 MSG_TYPE_CONFIRM    = 100
+MSG_TYPE_WINNERS    = 101
 
 
 # == Helpers de bajo nivel ==
@@ -81,7 +84,28 @@ def recv_batch(sock: socket.socket) -> dict:
         "type"      : "batch",
         "bets"      : bets,
     }
-    
+
+
+def recv_notify(sock: socket.socket) -> dict:
+    """
+    Protocolo:
+      [1 byte type=3]
+      [4 bytes agency].
+    """
+    agency = int.from_bytes(recv_exact(sock, 4), "big")
+    return {"type": "notify_end", "agency": agency}
+
+
+def recv_query(sock: socket.socket) -> dict:
+    """
+    Decodifica la consulta de la lista de ganadores.
+    Protocolo:
+      [1 byte type=4]
+      [4 bytes agency]
+    """
+    agency = int.from_bytes(recv_exact(sock, 4), "big")
+    return {"type": "query_winners", "agency": agency}
+
 
 def recv_message(sock: socket.socket) -> dict:
     """
@@ -96,6 +120,10 @@ def recv_message(sock: socket.socket) -> dict:
         return recv_one_bet(sock)
     elif  msg_type == MSG_TYPE_BATCH:
         return recv_batch(sock)
+    elif  msg_type == MSG_TYPE_NOTIFY_END:
+        return recv_notify(sock)
+    elif  msg_type == MSG_TYPE_QUERY_WIN: 
+        return recv_query(sock)
     else:
         raise ValueError(f"Unknown message type {msg_type}")
 
@@ -109,3 +137,25 @@ def send_confirmation(sock: socket.socket, success: bool) -> None:
     """
     data = bytes([MSG_TYPE_CONFIRM, 1 if success else 0])
     send_all(sock, data)
+
+def send_winners(sock: socket.socket, winners: list[str]) -> None:
+    """
+    Protocolo:
+      [1 byte type=101]
+      [2 bytes cantidad]
+      [1 byte type=101]
+      [2 bytes cantidad de ganadores]
+      [dni_1_length (1 byte)][dni_1 (N bytes)]
+      ...
+      [dni_n_length (1 byte)][dni_n (N bytes)]
+    """
+    out = bytearray()
+    out.append(MSG_TYPE_WINNERS)
+    out += len(winners).to_bytes(2, "big")
+    for dni in winners:
+        part = dni.encode("utf-8")
+        if len(part) > 255:
+            raise ValueError("DNI demasiado largo")
+        out.append(len(part))
+        out += part
+    send_all(sock, bytes(out))

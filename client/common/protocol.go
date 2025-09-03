@@ -10,9 +10,13 @@ import (
 
 // Constantes del protocolo
 const (
-	MSG_TYPE_BATCH = 2
-	MSG_TYPE_CONFIRM = 100
+	MSG_TYPE_BATCH      = 2
+	MSG_TYPE_NOTIFY_END = 3
+	MSG_TYPE_QUERY_WIN  = 4
+	MSG_TYPE_CONFIRM    = 100
+	MSG_TYPE_WINNERS    = 101
 )
+
 
 // writeAll: evita short-write
 func writeAll(conn net.Conn, data []byte) error {
@@ -75,6 +79,25 @@ func SerializeBatch(bets []BetRecord) ([]byte, error) {
 }
 
 
+// SerializeNotifyEnd arma el mensaje de notificación 
+// Protocolo: [1 byte type=3][4 bytes agency]
+func SerializeNotifyEnd(agency int) ([]byte, error) {
+	var out bytes.Buffer
+	out.WriteByte(MSG_TYPE_NOTIFY_END)
+	binary.Write(&out, binary.BigEndian, uint32(agency))
+	return out.Bytes(), nil
+}
+
+// SerializeQueryWinners arma el mensaje de consulta 
+// Protocolo: [1 byte type=4][4 bytes agency]
+func SerializeQueryWinners(agency int) ([]byte, error) {
+	var out bytes.Buffer
+	out.WriteByte(MSG_TYPE_QUERY_WIN)
+	binary.Write(&out, binary.BigEndian, uint32(agency))
+	return out.Bytes(), nil
+}
+
+
 // DecodeConfirmation lee 2 bytes y devuelve success/fail
 func DecodeConfirmation(conn net.Conn) (bool, error) {
 	header := make([]byte, 2)
@@ -85,4 +108,32 @@ func DecodeConfirmation(conn net.Conn) (bool, error) {
 		return false, fmt.Errorf("unexpected msg type %d", header[0])
 	}
 	return header[1] == 1, nil
+}
+
+
+// DecodeWinners lee los ganadores
+// Protocolo: [1 byte type=101][2 bytes cantidad de strings][dni str...]
+func DecodeWinners(conn net.Conn) ([]string, error) {
+	header := make([]byte, 3)
+	if _, err := io.ReadFull(conn, header); err != nil {
+		return nil, err
+	}
+	if header[0] != MSG_TYPE_WINNERS {
+		return nil, fmt.Errorf("unexpected msg type %d", header[0])
+	}
+	count := int(binary.BigEndian.Uint16(header[1:3]))
+	var winners []string
+	for i := 0; i < count; i++ {
+		lenBuf := make([]byte, 1)
+		if _, err := io.ReadFull(conn, lenBuf); err != nil {
+			return nil, err
+		}
+		size := int(lenBuf[0])
+		data := make([]byte, size)
+		if _, err := io.ReadFull(conn, data); err != nil {
+			return nil, err
+		}
+		winners = append(winners, string(data))
+	}
+	return winners, nil
 }

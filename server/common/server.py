@@ -7,11 +7,17 @@ class Server:
     def __init__(self, port, listen_backlog):
         # Initialize server socket
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # === Socket config === #
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_socket.settimeout(1.0)
         self._shutdown = False
+        # ===================== #
+        self._notificaciones    = 0
+        self._sorteo_realizado  = False
+        self._pending_queries   = {}  
+        self._ganadores         = {}  
 
     def run(self):
         """
@@ -47,10 +53,20 @@ class Server:
         try:
             data = p.recv_message(client_sock)
             resp = self.__process_msg(data)
-            p.send_confirmation(client_sock, resp.get("result") == "success")
+            if resp["type"] == "confirmation":
+                p.send_confirmation(client_sock, resp.get("result") == "success")
+                client_sock.close()
+            elif resp["type"] == "winners":
+                p.send_winners(client_sock, resp["winners"])
+                client_sock.close()
+            elif resp["type"] == "pending":
+                # no cierro el socket -> se queda abierto en _pending_queries
+                return
+            else:
+                p.send_confirmation(client_sock, False)
+                client_sock.close()
         except Exception as e:
             logging.error(f"action: handle_client | result: fail | error: {e}")
-        finally:
             client_sock.close()
 
 
@@ -61,25 +77,18 @@ class Server:
             return self._handle_bet(data)
         elif msg_type == "batch":
             return self._handle_batch(data)
+        elif msg_type == "notify_end":
+            return self._handle_notify(data)
+        elif msg_type == "query_winners":
+            return self._handle_query(data)
         else:
             logging.error(f"action: process_msg | result: fail | error: unknown_type | type: {msg_type}")
             return {"type": "error", "reason": "unknown_type"}
 
 
-    def _handle_batch(self, data: dict) -> dict:
-        """Procesa un mensaje con type=batch."""
-        try:
-            bets = self._parse_batch(data["bets"])
-            u.store_bets(bets)
-            logging.info(
-                f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
-            )
-            return {"type": "confirmation", "result": "success"}
-        except Exception as e:
-            cantidad = len(bets) if "bets" in locals() else 0
-            logging.error(f"action: apuesta_recibida | result: fail | cantidad: {cantidad}")
-            return {"type": "error", "reason": "invalid_bet"}
-
+    # ================================================ #
+    # ====== HANDLERS PARA CADA TIPO DE MENSAJE ====== #
+    # ================================================ #
 
     def _handle_bet(self, data: dict) -> dict:
         """Procesa un mensaje con type=bet."""
@@ -93,13 +102,44 @@ class Server:
         except Exception as e:
             logging.error(f"action: handle_bet | result: fail | error: {e}")
             return {"type": "error", "reason": "invalid_bet"}
+        
+    def _handle_batch(self, data: dict) -> dict:
+        """Procesa un mensaje con type=batch."""
+        try:
+            bets = self._parse_batch(data["bets"])
+            u.store_bets(bets)
+            logging.info(
+                f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
+            )
+            return {"type": "confirmation", "result": "success"}
+        except Exception as e:
+            cantidad = len(bets) if "bets" in locals() else 0
+            logging.error(f"action: apuesta_recibida | result: fail | cantidad: {cantidad}")
+            return {"type": "error", "reason": "invalid_bet"}
+        
+    def _handle_notify(self, data: dict) -> dict:
+        """Procesa un mensaje con type=notify_end"""
+        self._notificaciones += 1
+        logging.info(f"action: notify_end | result: success | agency: {data['agency']} | total: {self._notificaciones}")
+        if self._notificaciones == 5:
+            self._run_sorteo()
+        return {"type": "confirmation", "result": "success"}
 
-    def _parse_batch(self, data:list[dict]) -> list[u.Bet]:
-        """Convierte un dict a una lista de Bets validadas."""
-        bets: list[u.Bet] = []
-        for bet in data:
-            bets.append(self._parse_bet(bet))
-        return bets
+    def _handle_query(self, data: dict, client_sock=None) -> dict:
+        """Procesa un mensaje con type=query_winners"""
+        agency = data["agency"]
+        if not self._sorteo_realizado:
+            # guardo este socket para responder más tarde
+            self._pending_queries.setdefault(agency, []).append(client_sock)
+            logging.info(f"action: consulta_ganadores | result: pending | agency: {agency}")
+            return {"type": "pending"}
+        winners = self._ganadores.get(agency, [])
+        logging.info(f"action: consulta_ganadores | result: success | cant_ganadores: {len(winners)}")
+        return {"type": "winners", "winners": winners}
+
+    # ================================================ #
+    # ======  PARSERS PARA CADA TIPO DE MENSAJE ====== #
+    # ================================================ #
 
     def _parse_bet(self, data: dict) -> u.Bet:
         """Convierte un dict a una instancia de Bet validada."""
@@ -111,7 +151,34 @@ class Server:
             birthdate   =  data["birthdate"],
             number      =  data["number"],
         )
+    
+    def _run_sorteo(self):
+        """Calcula ganadores por agencia."""
+        all_bets = list(u.load_bets())
+        self._ganadores = {}
+        for bet in all_bets:
+            if u.has_won(bet):
+                self._ganadores.setdefault(bet.agency, []).append(bet.document)
+        self._sorteo_realizado = True
+        logging.info("action: sorteo | result: success")
 
+        for agency, sockets in self._pending_queries.items():
+            winners = self._ganadores.get(agency, [])
+            for s in sockets:
+                try:
+                    p.send_winners(s, winners)
+                except Exception as e:
+                    logging.error(f"error sending winners to agency {agency}: {e}")
+                finally:
+                    s.close()
+        self._pending_queries.clear()
+
+    def _parse_batch(self, data:list[dict]) -> list[u.Bet]:
+        """Convierte un dict a una lista de Bets validadas."""
+        bets: list[u.Bet] = []
+        for bet in data:
+            bets.append(self._parse_bet(bet))
+        return bets
 
     def __accept_new_connection(self):
         """

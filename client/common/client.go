@@ -85,10 +85,16 @@ func (c *Client) StartClientLoop(ctx context.Context, maxBatch int) {
         }
     }
     log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+
+	if err := c.notifyEnd(agencyID); err != nil {
+		return
+	}
+	c.queryWinners(agencyID)
+
 }
 
 
-
+// Envia un batch entero
 func (c *Client) sendBatch(batch []BetRecord) error {
 	if err := c.createClientSocket(); err != nil {
 		return err
@@ -118,6 +124,52 @@ func (c *Client) sendBatch(batch []BetRecord) error {
 		log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | cantidad: %d", c.config.ID, len(batch))
 	}
 	return nil
+}
+
+// Notifica al servidor que ya termino de enviar todos los batches.
+func (c *Client) notifyEnd(agencyID int) error {
+	if err := c.createClientSocket(); err != nil {
+		return err
+	}
+	defer c.conn.Close()
+	_ = c.conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	payload, _ := SerializeNotifyEnd(agencyID)
+	if err := writeAll(c.conn, payload); err != nil {
+		log.Errorf("action: notify_end | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+	_, err := DecodeConfirmation(c.conn)
+	if err != nil {
+		log.Errorf("action: notify_end | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+	log.Infof("action: notify_end | result: success | client_id: %v", c.config.ID)
+	return nil
+}
+
+// Solicita al servidor que le devuelva el ganador
+// Timeout mayor, porque puede tener que esperar hasta que todas las agencias terminen
+func (c *Client) queryWinners(agencyID int) {
+	if err := c.createClientSocket(); err != nil {
+		return
+	}
+	defer c.conn.Close()
+	_ = c.conn.SetDeadline(time.Now().Add(60 * time.Second))
+
+	payload, _ := SerializeQueryWinners(agencyID)
+	if err := writeAll(c.conn, payload); err != nil {
+		log.Errorf("action: query_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	winners, err := DecodeWinners(c.conn)
+	if err != nil {
+		log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(winners))
 }
 
 
