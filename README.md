@@ -290,6 +290,45 @@ La cantidad máxima de apuestas dentro de cada _batch_ debe ser configurable des
 
 Por su parte, el servidor deberá responder con éxito solamente si todas las apuestas del _batch_ fueron procesadas correctamente.
 
+### Formato de mensaje – Bet (cliente → servidor)
+Cada cliente lee su archivo .data/agency-{N}.csv completo al arrancar.
+Cada batch se manda como un mensaje binario:
+```bash
+[1 byte type = 2] 
+[2 bytes cantidad de apuestas]
+[apuesta 1 serializada] 
+[apuesta 2 serializada] 
+...
+[apuesta N serializada]
+```
+Donde cada apuesta incluye:
+```bash
+[4 bytes agency]
+[dni str] [first str] [last str] [birth str]
+[4 bytes number]
+```
+El servidor responde con:
+```bash
+[1 byte type = 100]
+[1 byte result = 1 (éxito) / 0 (error)]
+```
+
+### Como correrlo
+1. Generar el docker-compose-dev.yaml para uno o mas clientes:
+```bash
+./generar-compose.sh docker-compose-dev.yaml <n>
+```
+2. Levantar los servicios (server + client):
+```bash
+make docker-compose-up
+```
+3. Ver logs y bajar
+```bash
+make docker-compose-logs   # ver interacción entre clientes y server
+make docker-compose-down   # apagar y limpiar
+```
+
+
 ### Ejercicio N°7:
 
 Modificar los clientes para que notifiquen al servidor al finalizar con el envío de todas las apuestas y así proceder con el sorteo.
