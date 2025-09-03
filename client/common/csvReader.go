@@ -7,7 +7,7 @@ import (
 )
 
 // readBetsFromCSV abre el archivo y devuelve todas las apuestas
-func readBetsFromCSV(path string) ([]BetRecord, error) {
+func readBetsFromCSV(path string, agencyID int) ([]BetRecord, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -23,14 +23,14 @@ func readBetsFromCSV(path string) ([]BetRecord, error) {
 		if err != nil {
 			break // EOF
 		}
-		num, _ 		:= strconv.Atoi(row[5])
-		agency, _ 	:= strconv.Atoi(row[0])
+		// row: [FirstName, LastName, Document, Birthdate, Number]
+		num, _ := strconv.Atoi(row[4])
 		bets = append(bets, BetRecord{
-			Agency:    agency,
-			FirstName: row[1],
-			LastName:  row[2],
-			Document:  row[3],
-			Birthdate: row[4],
+			Agency:    agencyID,
+			FirstName: row[0],
+			LastName:  row[1],
+			Document:  row[2],
+			Birthdate: row[3],
 			Number:    num,
 		})
 	}

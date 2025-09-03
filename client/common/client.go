@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/op/go-logging"
@@ -63,7 +64,8 @@ func (c *Client) createClientSocket() error {
 
 // Bucle principal del cliente, cortable por signal vía ctx
 func (c *Client) StartClientLoop(ctx context.Context, maxBatch int) {
-    bets, err := readBetsFromCSV(c.config.DataFile)
+	agencyID, _ := strconv.Atoi(c.config.ID)
+    bets, err := readBetsFromCSV(c.config.DataFile, agencyID)
     if err != nil {
         log.Criticalf("action: read_csv | result: fail | error: %v", err)
         return
