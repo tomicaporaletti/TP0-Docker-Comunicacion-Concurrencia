@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 )
 
 // Constantes del protocolo
 const (
-	MSG_TYPE_BET     = 1
+	MSG_TYPE_BATCH = 2
 	MSG_TYPE_CONFIRM = 100
 )
 
@@ -41,43 +40,40 @@ func encodeString(s string) ([]byte, error) {
 	return buf, nil
 }
 
-// SerializeBet arma el mensaje binario para enviar una apuesta
-/*
-    Protocolo:
-      [1 byte type]
-      [4 bytes agency]
-      [dni str] [first str] [last str] [birth str]
-      [4 bytes number]
+// Serializa una sola apuesta
+func SerializeOneBet(b BetRecord) ([]byte, error) {
+    var out bytes.Buffer
+    binary.Write(&out, binary.BigEndian, uint32(b.Agency))
+    for _, s := range []string{b.Document, b.FirstName, b.LastName, b.Birthdate} {
+        part, err := encodeString(s)
+        if err != nil {
+            return nil, err
+        }
+        out.Write(part)
+    }
+    binary.Write(&out, binary.BigEndian, uint32(b.Number))
+    return out.Bytes(), nil
+}
 
-    Protocolo usa Big Endiann
-*/
-func SerializeBet(b *BetMessage) ([]byte, error) {
+// SerializeBatch serializa un slice de apuestas como batch
+// Protocolo: [1 byte type=2][2 bytes cantidad][cada bet como en SerializeBet pero sin type]
+func SerializeBatch(bets []BetRecord) ([]byte, error) {
 	var out bytes.Buffer
+	out.WriteByte(MSG_TYPE_BATCH)
 
-	// tipo
-	out.WriteByte(MSG_TYPE_BET)
+	// cantidad de bets (2 bytes big endian)
+	binary.Write(&out, binary.BigEndian, uint16(len(bets)))
 
-	// agency: 4 bytes big-endian
-	agencyInt, err := strconv.Atoi(b.Agency)
-	if err != nil {
-		return nil, err
-	}
-	binary.Write(&out, binary.BigEndian, uint32(agencyInt))
-
-	// campos string
-	for _, s := range []string{b.Document, b.FirstName, b.LastName, b.Birthdate} {
-		part, err := encodeString(s)
-		if err != nil {
-			return nil, err
-		}
-		out.Write(part)
-	}
-
-	// number: 4 bytes big-endian
-	binary.Write(&out, binary.BigEndian, uint32(b.Number))
-
+    for _, b := range bets {
+        betBytes, err := SerializeOneBet(b)
+        if err != nil {
+            return nil, err
+        }
+        out.Write(betBytes)
+    }
 	return out.Bytes(), nil
 }
+
 
 // DecodeConfirmation lee 2 bytes y devuelve success/fail
 func DecodeConfirmation(conn net.Conn) (bool, error) {

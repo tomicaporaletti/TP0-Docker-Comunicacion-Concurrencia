@@ -1,36 +1,14 @@
 package common
 
-import (
-	"os"
-	"strconv"
-)
 
-// BetMessage representa la apuesta que manda el cliente
-type BetMessage struct {
-	Type      string `json:"type"`
-	Agency    string `json:"agency"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Document  string `json:"document"`
-	Birthdate string `json:"birthdate"`
-	Number    int    `json:"number"`
+// BetRecord representa una apuesta en sí (modelo de dominio).
+type BetRecord struct {
+	Agency    int
+	FirstName string
+	LastName  string
+	Document  string
+	Birthdate string
+	Number    int
 }
 
-// NewBetFromEnv construye un BetMessage a partir de las variables de entorno
-func NewBetFromEnv(agency string) (*BetMessage, error) {
-	numStr := os.Getenv("NUMERO")
-	number, err := strconv.Atoi(numStr)
-	if err != nil {
-		return nil, err
-	}
-	return &BetMessage{
-		Type:      "bet",
-		Agency:    agency,
-		FirstName: os.Getenv("NOMBRE"),
-		LastName:  os.Getenv("APELLIDO"),
-		Document:  os.Getenv("DOCUMENTO"),
-		Birthdate: os.Getenv("NACIMIENTO"),
-		Number:    number,
-	}, nil
-}
 

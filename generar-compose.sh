@@ -42,14 +42,10 @@ for i in $(seq 1 "$NUM_CLIENTS"); do
     environment:
       - CLI_ID=${i}
       - CONFIG_FILE=/config/config.yaml
-      # Variables de la apuesta
-      - NOMBRE=Juan
-      - APELLIDO=Perez
-      - DOCUMENTO=12345678
-      - NACIMIENTO=1990-01-01
-      - NUMERO=7574
+      - DATA_FILE=/data/agency.csv
     volumes:
       - ./client/config.yaml:/config/config.yaml:ro
+      - ./.data/agency-${i}.csv:/data/agency.csv:ro
     networks:
       - testing_net
     depends_on:

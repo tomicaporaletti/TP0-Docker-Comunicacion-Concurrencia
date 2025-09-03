@@ -2,6 +2,7 @@ import socket
 
 # --- Constantes del protocolo ---
 MSG_TYPE_BET        = 1
+MSG_TYPE_BATCH      = 2
 MSG_TYPE_CONFIRM    = 100
 
 
@@ -37,21 +38,16 @@ def send_all(sock: socket.socket, data: bytes) -> None:
 
 # == Decodificación de mensajes ==
 
-def recv_message(sock: socket.socket) -> dict:
+def recv_one_bet(sock: socket.socket) -> dict:
     """
-    Decodifica un mensaje del cliente.
+    Decodifica una apuesta.
     Protocolo:
-      [1 byte type]
       [4 bytes agency]
       [dni str] [first str] [last str] [birth str]
       [4 bytes number]
 
     Protocolo usa Big Endiann
     """
-    msg_type = recv_exact(sock, 1)[0]
-    if msg_type != MSG_TYPE_BET:
-        raise ValueError(f"Unknown message type {msg_type}")
-
     agency      = int.from_bytes(recv_exact(sock, 4), "big")
     document    = recv_string(sock)
     first       = recv_string(sock)
@@ -69,6 +65,39 @@ def recv_message(sock: socket.socket) -> dict:
         "number"    : number,
     }
 
+def recv_batch(sock: socket.socket) -> dict:
+    """
+    Decodifica cuantas apuestas hay en el batch.
+    Protocolo:
+      [2 bytes total bets]
+
+    Protocolo usa Big Endiann
+    """
+    tot_bets            = int.from_bytes(recv_exact(sock, 2), "big")
+    bets: list[dict]    = []
+    for _ in range(tot_bets):
+        bets.append(recv_one_bet(sock))
+    return {
+        "type"      : "batch",
+        "bets"      : bets,
+    }
+    
+
+def recv_message(sock: socket.socket) -> dict:
+    """
+    Decodifica el tipo de mensaje que llego al servidor.
+    Protocolo:
+      [1 byte type]
+
+    Protocolo usa Big Endiann
+    """
+    msg_type = recv_exact(sock, 1)[0]
+    if    msg_type == MSG_TYPE_BET:
+        return recv_one_bet(sock)
+    elif  msg_type == MSG_TYPE_BATCH:
+        return recv_batch(sock)
+    else:
+        raise ValueError(f"Unknown message type {msg_type}")
 
 # == Serialización de respuestas ==
 

@@ -40,6 +40,9 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("loop", "period")
 	v.BindEnv("loop", "amount")
 	v.BindEnv("log", "level")
+	v.BindEnv("datafile", "DATA_FILE")
+	v.SetDefault("datafile", "/data/agency.csv")
+
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -98,12 +101,13 @@ func InitLogger(logLevel string) error {
 // PrintConfig Print all the configuration parameters of the program.
 // For debugging purposes only
 func PrintConfig(v *viper.Viper) {
-	log.Infof("action: config | result: success | client_id: %s | server_address: %s | loop_amount: %v | loop_period: %v | log_level: %s",
+	log.Infof("action: config | result: success | client_id: %s | server_address: %s | loop_amount: %v | loop_period: %v | log_level: %s | datafile: %s",
 		v.GetString("id"),
 		v.GetString("server.address"),
 		v.GetInt("loop.amount"),
 		v.GetDuration("loop.period"),
 		v.GetString("log.level"),
+		v.GetString("datafile"),
 	)
 }
 
@@ -121,17 +125,23 @@ func main() {
 	PrintConfig(v)
 
 	clientConfig := common.ClientConfig{
-		ServerAddress: v.GetString("server.address"),
-		ID:            v.GetString("id"),
-		LoopAmount:    v.GetInt("loop.amount"),
-		LoopPeriod:    v.GetDuration("loop.period"),
+		ServerAddress	: v.GetString("server.address"),
+		ID				: v.GetString("id"),
+		LoopAmount		: v.GetInt("loop.amount"),
+		LoopPeriod		: v.GetDuration("loop.period"),
+    	DataFile		: v.GetString("datafile"),	
 	}
+
+    maxBatch := v.GetInt("batch.maxAmount")
+    if maxBatch <= 0 {
+        maxBatch = 10 // valor por default
+    }
 
 	client := common.NewClient(clientConfig)
 	// Capturar SIGTERM / SIGINT
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	client.StartClientLoop(ctx)
+	client.StartClientLoop(ctx, maxBatch)
 	os.Exit(0)
 }

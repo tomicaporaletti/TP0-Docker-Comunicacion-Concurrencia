@@ -55,13 +55,30 @@ class Server:
 
 
     def __process_msg(self, data: dict) -> dict:
-        """Procesa un mensaje JSON y delega según el type."""
+        """Procesa un mensaje y delega según el type."""
         msg_type = data.get("type")
         if msg_type == "bet":
             return self._handle_bet(data)
+        elif msg_type == "batch":
+            return self._handle_batch(data)
         else:
             logging.error(f"action: process_msg | result: fail | error: unknown_type | type: {msg_type}")
             return {"type": "error", "reason": "unknown_type"}
+
+
+    def _handle_batch(self, data: dict) -> dict:
+        """Procesa un mensaje con type=batch."""
+        try:
+            bets = self._parse_batch(data["bets"])
+            u.store_bets(bets)
+            logging.info(
+                f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
+            )
+            return {"type": "confirmation", "result": "success"}
+        except Exception as e:
+            cantidad = len(bets) if "bets" in locals() else 0
+            logging.error(f"action: apuesta_recibida | result: fail | cantidad: {cantidad}")
+            return {"type": "error", "reason": "invalid_bet"}
 
 
     def _handle_bet(self, data: dict) -> dict:
@@ -77,6 +94,12 @@ class Server:
             logging.error(f"action: handle_bet | result: fail | error: {e}")
             return {"type": "error", "reason": "invalid_bet"}
 
+    def _parse_batch(self, data:list[dict]) -> list[u.Bet]:
+        """Convierte un dict a una lista de Bets validadas."""
+        bets: list[u.Bet] = []
+        for bet in data:
+            bets.append(self._parse_bet(bet))
+        return bets
 
     def _parse_bet(self, data: dict) -> u.Bet:
         """Convierte un dict a una instancia de Bet validada."""
