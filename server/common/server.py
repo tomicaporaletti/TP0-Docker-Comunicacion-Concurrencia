@@ -59,9 +59,6 @@ class Server:
                 client_sock.close()
             elif resp["type"] == "winners":
                 p.send_winners(client_sock, resp["winners"])
-                # logging.info(
-                #     f"action: consulta_ganadores | result: success | agency: {data['agency']} | cant_ganadores: {len(resp['winners'])}"
-                # )
                 client_sock.close()
             elif resp["type"] == "pending":
                 # no cierro el socket -> se queda abierto en _pending_queries
@@ -171,7 +168,6 @@ class Server:
             for s in sockets:
                 try:
                     p.send_winners(s, winners)
-                    #logging.info(f"action: consulta_ganadores | result: success | agency: {agency} | cant_ganadores: {len(winners)}")
                 except Exception as e:
                     logging.error(f"action: consulta_ganadores | result: fail | agency: {agency} | error: {e}")
                 finally:

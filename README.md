@@ -332,15 +332,44 @@ make docker-compose-down   # apagar y limpiar
 ### Ejercicio N°7:
 
 Modificar los clientes para que notifiquen al servidor al finalizar con el envío de todas las apuestas y así proceder con el sorteo.
-Inmediatamente después de la notificacion, los clientes consultarán la lista de ganadores del sorteo correspondientes a su agencia.
-Una vez el cliente obtenga los resultados, deberá imprimir por log: `action: consulta_ganadores | result: success | cant_ganadores: ${CANT}`.
+Inmediatamente después de la notificación, los clientes consultarán la lista de ganadores del sorteo correspondientes a su agencia.
 
-El servidor deberá esperar la notificación de las 5 agencias para considerar que se realizó el sorteo e imprimir por log: `action: sorteo | result: success`.
-Luego de este evento, podrá verificar cada apuesta con las funciones `load_bets(...)` y `has_won(...)` y retornar los DNI de los ganadores de la agencia en cuestión. Antes del sorteo no se podrán responder consultas por la lista de ganadores con información parcial.
+#### Comportamiento esperado
+- Cada cliente, al terminar de enviar todos sus _batchs_, debe enviar un mensaje de tipo **notify_end**.
+- El servidor debe esperar la notificación de las `N` agencias configuradas (por defecto 5).  
+  Una vez recibidas, se realiza el sorteo.
+- Antes del sorteo, el servidor no debe entregar resultados parciales: si recibe una consulta de ganadores antes de que todas las agencias hayan notificado, debe dejar el socket pendiente hasta que el sorteo ocurra.
 
-Las funciones `load_bets(...)` y `has_won(...)` son provistas por la cátedra y no podrán ser modificadas por el alumno.
+#### Formato de mensajes
 
-No es correcto realizar un broadcast de todos los ganadores hacia todas las agencias, se espera que se informen los DNIs ganadores que correspondan a cada una de ellas.
+**Cliente → Servidor**
+
+1. **Notificación de fin (`notify_end`)**
+```bash
+[1 byte type = 3]
+[4 bytes agency]
+```
+2. Consulta de ganadores (query_winners):
+```bash
+[1 byte type = 4]
+[4 bytes agency]
+```
+
+*** Servidor → Cliente ***
+
+1. Confirmación (confirmation)
+```bash
+[1 byte type = 100]
+[1 byte result = 1 (éxito) / 0 (error)]
+```
+2.Ganadores (winners)
+```bash
+[1 byte type = 101]
+[2 bytes cantidad]
+[dni_1_length (1 byte)][dni_1 (N bytes)]
+...
+[dni_n_length (1 byte)][dni_n (N bytes)]
+```
 
 ## Parte 3: Repaso de Concurrencia
 En este ejercicio es importante considerar los mecanismos de sincronización a utilizar para el correcto funcionamiento de la persistencia.
