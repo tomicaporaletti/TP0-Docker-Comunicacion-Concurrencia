@@ -21,7 +21,7 @@ class Server:
         self._pending_queries   = {}  
         self._ganadores         = {} 
         self._lock              = threading.RLock() # Lock Reentrante
-
+        self._threads           = []
 
     def run(self):
         """
@@ -37,6 +37,7 @@ class Server:
                 try:
                     client_sock = self.__accept_new_connection()
                 except socket.timeout:
+
                     continue
                 except OSError:
                     break
@@ -47,6 +48,8 @@ class Server:
                     daemon=True
                 )
                 t.start()
+                self._threads.append(t)
+
         finally:
             self._graceful_shut()
 
@@ -206,6 +209,13 @@ class Server:
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
 
+    def _clean_dead_threads(self):
+        """
+        Para ir eliminando los threads muertos, asi no se acumula una gran cantidad
+        """
+        with self._lock:
+            alive_threads = [t for t in self._threads if t.is_alive()]
+            self._threads = alive_threads
 
     def _graceful_shut(self):
         """
@@ -222,6 +232,13 @@ class Server:
                             pass
                 self._pending_queries.clear()
             logging.info("action: all_sockets_from_server_closed | result: success")
+
+            if hasattr(self, "_threads"):
+                alive_threads = [t for t in self._threads if t.is_alive()]
+                for t in alive_threads:
+                    t.join(timeout=2.0)
+            logging.info("action: all_threads_joined | result: success")
+
         except OSError as e:
             logging.error(f"action: server_socket_close | result: fail | error: {e}")
         logging.info("action: exit | result: success")   # <--- NECESARIO PARA LOS TESTS
