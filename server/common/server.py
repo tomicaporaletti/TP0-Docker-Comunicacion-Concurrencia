@@ -214,7 +214,7 @@ class Server:
         try:
             self._server_socket.close()
             with self._lock:
-                for agency, sockets in self._pending_queries.items():
+                for _, sockets in self._pending_queries.items():
                     for s in sockets:
                         try:
                             s.close()

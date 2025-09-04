@@ -209,7 +209,7 @@ make docker-compose-logs
 
 4. En otra terminal, detener el servidor con SIGTERM:
 ```bash
-make docker-compose-down
+docker kill -s SIGTERM server
 ```
 
 ## Parte 2: Repaso de Comunicaciones
