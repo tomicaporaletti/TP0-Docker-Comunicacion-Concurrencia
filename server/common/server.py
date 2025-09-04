@@ -194,7 +194,7 @@ class Server:
         """
         c, addr = self._server_socket.accept()
         c.settimeout(None) 
-        logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
+        #logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
 
 
