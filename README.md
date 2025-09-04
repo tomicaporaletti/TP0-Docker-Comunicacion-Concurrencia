@@ -93,9 +93,62 @@ python3 mi-generador.py $1 $2
 
 En el archivo de Docker Compose de salida se pueden definir volúmenes, variables de entorno y redes con libertad, pero recordar actualizar este script cuando se modifiquen tales definiciones en los sucesivos ejercicios.
 
+### Ejecucion
+1. Hacemos que el archivo bash sea ejecutable.
+Desde la raiz del repositorio:
+```bash
+chmod +x generar-compose.sh
+```
+
+2. Corremos el archivo bash.
+```bash
+./generar-compose.sh docker-compose-dev.yaml <Numero de clientes>
+```
+Ejemplo:
+```bash
+./generar-compose.sh docker-compose-dev.yaml 5
+```
+Eso te va a generar (o sobrescribir) un archivo docker-compose-dev.yaml con el server y 5 clientes.
+
+3. Levantar con Make:
+```bash
+make docker-compose-up
+```
+4. Ver logs y bajar
+```bash
+make docker-compose-logs   # ver interacción entre clientes y server
+make docker-compose-down   # apagar y limpiar
+```
+
+
 ### Ejercicio N°2:
 Modificar el cliente y el servidor para lograr que realizar cambios en el archivo de configuración no requiera reconstruír las imágenes de Docker para que los mismos sean efectivos. La configuración a través del archivo correspondiente (`config.ini` y `config.yaml`, dependiendo de la aplicación) debe ser inyectada en el container y persistida por fuera de la imagen (hint: `docker volumes`).
 
+## ¿Por qué montar volúmenes para los archivos de configuración?
+
+En Docker las **imágenes** son inmutables: una vez construidas, no cambian.  
+Si el archivo `config.ini` o `config.yaml` está **copiado dentro de la imagen**, cada vez que modificás la config tenés que **reconstruir la imagen** (`docker build`) para que el cambio se vea. Eso es lento e innecesario.
+
+La solución es usar **volúmenes**:
+- La imagen contiene solo el **código/binarios**.
+- El archivo de configuración queda **afuera** (en tu repo local).
+- El `docker-compose.yaml` monta ese archivo dentro del contenedor:
+
+```yaml
+services:
+  server:
+    image: server:latest
+    environment:
+      - CONFIG_FILE=/config/config.ini
+    volumes:
+      - ./server/config.ini:/config/config.ini:ro
+```
+De esta manera:
+- Si cambiás config.ini o config.yaml, solo hay que recrear el contenedor (docker compose up -d), sin rebuild.
+- La misma imagen sirve para dev, test y prod: solo cambia el archivo de config montado.
+- El flag :ro asegura que el contenedor solo pueda leer la config (no modificarla).
+
+⚠️ Importante: si una variable existe tanto en un ENV del contenedor como en el archivo config, gana siempre la de ENV (precedencia). Por eso no no hay que duplicar valores entre Compose y los archivos de config.
 
 ### Ejercicio N°3:
 Crear un script de bash `validar-echo-server.sh` que permita verificar el correcto funcionamiento del servidor utilizando el comando `netcat` para interactuar con el mismo. Dado que el servidor es un echo server, se debe enviar un mensaje al servidor y esperar recibir el mismo mensaje enviado.
@@ -104,9 +157,60 @@ En caso de que la validación sea exitosa imprimir: `action: test_echo_server | 
 
 El script deberá ubicarse en la raíz del proyecto. Netcat no debe ser instalado en la máquina _host_ y no se pueden exponer puertos del servidor para realizar la comunicación (hint: `docker network`). `
 
+### Ejecucion
+Desde la raiz del repositorio:
+1. Hacemos que el archivo bash sea ejecutable.
+```bash
+chmod +x validar-echo-server.sh
+```
+
+2. Ejecutar (mensaje opcional; por defecto envía "Hola"):
+```bash
+./validar-echo-server.sh
+./validar-echo-server.sh "Mensaje con espacios 123"
+```
+Ejemplo:
+```bash
+./generar-compose.sh docker-compose-dev.yaml 5
+```
+Eso te va a generar (o sobrescribir) un archivo docker-compose-dev.yaml con el server y 5 clientes.
+
+3. Salida esperada:
+- Exito:
+```bash
+action: test_echo_server | result: success
+```
+(exit code 0)
+- Falla:
+```bash
+action: test_echo_server | result: fail
+```
+(exit code 1)
+
 
 ### Ejercicio N°4:
 Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful_ al recibir la signal SIGTERM. Terminar la aplicación de forma _graceful_ implica que todos los _file descriptors_ (entre los que se encuentran archivos, sockets, threads y procesos) deben cerrarse correctamente antes que el thread de la aplicación principal muera. Loguear mensajes en el cierre de cada recurso (hint: Verificar que hace el flag `-t` utilizado en el comando `docker compose down`).
+
+### Como probar
+1. Generar el docker-compose-dev.yaml con el script:
+```bash
+./generar-compose.sh docker-compose-dev.yaml <Num clientes>
+```
+
+2. Levantar el entorno:
+```bash
+make docker-compose-up
+```
+
+3. Observar los logs:
+```bash
+make docker-compose-logs
+```
+
+4. En otra terminal, detener el servidor con SIGTERM:
+```bash
+docker kill -s SIGTERM server
+```
 
 ## Parte 2: Repaso de Comunicaciones
 
@@ -133,6 +237,45 @@ Se deberá implementar un módulo de comunicación entre el cliente y el servido
 * Correcta separación de responsabilidades entre modelo de dominio y capa de comunicación.
 * Correcto empleo de sockets, incluyendo manejo de errores y evitando los fenómenos conocidos como [_short read y short write_](https://cs61.seas.harvard.edu/site/2018/FileDescriptors/).
 
+### Formato de mensaje – Bet (cliente → servidor)
+```bash
+[1 byte]      type          (1 = bet)
+[4 bytes]     agency        (entero big-endian)
+[1 byte + N]  document      (longitud + contenido UTF-8)
+[1 byte + N]  first_name    (longitud + contenido UTF-8)
+[1 byte + N]  last_name     (longitud + contenido UTF-8)
+[1 byte + N]  birthdate     (longitud + contenido UTF-8, formato YYYY-MM-DD)
+[4 bytes]     number        (entero big-endian)
+```
+Ejemplo:
+```bash
+01 | 00 00 00 01 | 08 "30904465" | 08 "Santiago" | 05 "Lorca" | 10 "1999-03-17" | 00 00 1D 96
+```
+
+### Formato de mensaje – Confirmation (servidor → cliente)
+```bash
+[1 byte] type   (100 = confirmation)
+[1 byte] result (1 = success, 0 = fail)
+```
+Ejemplo (De exito):
+```bash
+64 | 01
+```
+
+### Como correrlo
+1. Generar el docker-compose con la cantidad de clientes:
+```bash
+./generar-compose.sh docker-compose-dev.yaml 1
+```
+2. Levantar los servicios:
+```bash
+docker compose -f docker-compose-dev.yaml up --build
+```
+
+3. Observar los logs en tiempo real:
+```bash
+docker compose -f docker-compose-dev.yaml logs -f
+```
 
 ### Ejercicio N°6:
 Modificar los clientes para que envíen varias apuestas a la vez (modalidad conocida como procesamiento por _chunks_ o _batchs_). 
@@ -147,18 +290,86 @@ La cantidad máxima de apuestas dentro de cada _batch_ debe ser configurable des
 
 Por su parte, el servidor deberá responder con éxito solamente si todas las apuestas del _batch_ fueron procesadas correctamente.
 
+### Formato de mensaje – Bet (cliente → servidor)
+Cada cliente lee su archivo .data/agency-{N}.csv completo al arrancar.
+Cada batch se manda como un mensaje binario:
+```bash
+[1 byte type = 2] 
+[2 bytes cantidad de apuestas]
+[apuesta 1 serializada] 
+[apuesta 2 serializada] 
+...
+[apuesta N serializada]
+```
+Donde cada apuesta incluye:
+```bash
+[4 bytes agency]
+[dni str] [first str] [last str] [birth str]
+[4 bytes number]
+```
+El servidor responde con:
+```bash
+[1 byte type = 100]
+[1 byte result = 1 (éxito) / 0 (error)]
+```
+
+### Como correrlo
+1. Generar el docker-compose-dev.yaml para uno o mas clientes:
+```bash
+./generar-compose.sh docker-compose-dev.yaml <n>
+```
+2. Levantar los servicios (server + client):
+```bash
+make docker-compose-up
+```
+3. Ver logs y bajar
+```bash
+make docker-compose-logs   # ver interacción entre clientes y server
+make docker-compose-down   # apagar y limpiar
+```
+
+
 ### Ejercicio N°7:
 
 Modificar los clientes para que notifiquen al servidor al finalizar con el envío de todas las apuestas y así proceder con el sorteo.
-Inmediatamente después de la notificacion, los clientes consultarán la lista de ganadores del sorteo correspondientes a su agencia.
-Una vez el cliente obtenga los resultados, deberá imprimir por log: `action: consulta_ganadores | result: success | cant_ganadores: ${CANT}`.
+Inmediatamente después de la notificación, los clientes consultarán la lista de ganadores del sorteo correspondientes a su agencia.
 
-El servidor deberá esperar la notificación de las 5 agencias para considerar que se realizó el sorteo e imprimir por log: `action: sorteo | result: success`.
-Luego de este evento, podrá verificar cada apuesta con las funciones `load_bets(...)` y `has_won(...)` y retornar los DNI de los ganadores de la agencia en cuestión. Antes del sorteo no se podrán responder consultas por la lista de ganadores con información parcial.
+#### Comportamiento esperado
+- Cada cliente, al terminar de enviar todos sus _batchs_, debe enviar un mensaje de tipo **notify_end**.
+- El servidor debe esperar la notificación de las `N` agencias configuradas (por defecto 5).  
+  Una vez recibidas, se realiza el sorteo.
+- Antes del sorteo, el servidor no debe entregar resultados parciales: si recibe una consulta de ganadores antes de que todas las agencias hayan notificado, debe dejar el socket pendiente hasta que el sorteo ocurra.
 
-Las funciones `load_bets(...)` y `has_won(...)` son provistas por la cátedra y no podrán ser modificadas por el alumno.
+#### Formato de mensajes
 
-No es correcto realizar un broadcast de todos los ganadores hacia todas las agencias, se espera que se informen los DNIs ganadores que correspondan a cada una de ellas.
+**Cliente → Servidor**
+
+1. **Notificación de fin (`notify_end`)**
+```bash
+[1 byte type = 3]
+[4 bytes agency]
+```
+2. Consulta de ganadores (query_winners):
+```bash
+[1 byte type = 4]
+[4 bytes agency]
+```
+
+*** Servidor → Cliente ***
+
+1. Confirmación (confirmation)
+```bash
+[1 byte type = 100]
+[1 byte result = 1 (éxito) / 0 (error)]
+```
+2.Ganadores (winners)
+```bash
+[1 byte type = 101]
+[2 bytes cantidad]
+[dni_1_length (1 byte)][dni_1 (N bytes)]
+...
+[dni_n_length (1 byte)][dni_n (N bytes)]
+```
 
 ## Parte 3: Repaso de Concurrencia
 En este ejercicio es importante considerar los mecanismos de sincronización a utilizar para el correcto funcionamiento de la persistencia.
@@ -166,6 +377,66 @@ En este ejercicio es importante considerar los mecanismos de sincronización a u
 ### Ejercicio N°8:
 
 Modificar el servidor para que permita aceptar conexiones y procesar mensajes en paralelo. En caso de que el alumno implemente el servidor en Python utilizando _multithreading_,  deberán tenerse en cuenta las [limitaciones propias del lenguaje](https://wiki.python.org/moin/GlobalInterpreterLock).
+
+Decisiones de implementación
+
+1. Modelo de concurrencia: hilos por conexión
+- Por cada conexión aceptada, el servidor crea un hilo (threading.Thread) dedicado a procesar los mensajes de ese cliente.
+- Esto simplifica la lógica: cada cliente se atiende en paralelo y no bloquea la recepción de otros.
+
+2. Problema del GIL en Python
+- Python tiene el Global Interpreter Lock (GIL), que limita la ejecución concurrente de threads a nivel CPU.
+- Sin embargo, nuestro servidor pasa la mayor parte del tiempo en operaciones de E/S (sockets, archivos), donde el GIL se libera automáticamente.
+- Por lo tanto, usar hilos sigue siendo beneficioso para manejar múltiples conexiones simultáneamente.
+
+3. Sincronización de recursos compartidos
+- El archivo bets.csv es el recurso central de persistencia: múltiples hilos pueden escribir (store_bets) o leer (load_bets) al mismo tiempo.
+- Para evitar corrupción de datos, se protegieron estas operaciones con un lock reentrante (threading.RLock).
+- El RLock permite que el mismo hilo pueda volver a tomar el lock si ya lo tenía (por ejemplo, _handle_notify llama a _run_sorteo, que también necesita lock).
+
+4. Secciones críticas protegidas
+- Escritura de apuestas (store_bets)
+- Lectura de apuestas para calcular ganadores (load_bets)
+- Modificación de contadores y estructuras internas (_notificaciones, _ganadores, _pending_queries)
+
+Esto asegura que el estado interno del servidor siempre sea consistente, incluso con múltiples clientes activos.
+
+5. Shutdown seguro
+- El graceful shutdown sigue funcionando: el socket de escucha se cierra al recibir la señal de fin y los hilos activos terminan naturalmente al cerrar cada conexión.
+
+## TESTS
+### Primera vez corriendo los tests - SetUp
+1. Clonar el repo de tests:
+    ```bash
+    git clone git@github.com:7574-sistemas-distribuidos/tp0-tests.git
+    cd tp0-tests
+    ```
+2. Crear y activar un entorno virtual de Python:
+    ```bash
+    sudo apt install python3.12-venv
+    python3 -m venv .venv
+    source .venv/bin/activate
+    ```
+3. Instalar dependencias:
+    ```bash
+    pip install -r requirements.txt
+    ```
+### Ejecucion tests
+Una vez ya tengamos todo instalado, desde el entorno virtual podemos ya ejecutar los tests.
+- Si no estas en el entorno virtual tenes que hacer:
+    ```
+    source .venv/bin/activate
+    ```
+
+4. Exportar la variable REPO_PATH apuntando a la raíz de tu TP (el repo donde está tu Makefile, server/, client/, etc.):
+    ```bash
+    export REPO_PATH=<Ruta Completa a la raiz del proyecto>
+    ```
+
+5. Ejecutar los tests:
+    ```bash
+    pytest -v
+    ```
 
 ## Condiciones de Entrega
 Se espera que los alumnos realicen un _fork_ del presente repositorio para el desarrollo de los ejercicios y que aprovechen el esqueleto provisto tanto (o tan poco) como consideren necesario.
