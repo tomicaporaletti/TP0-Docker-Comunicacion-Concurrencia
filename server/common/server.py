@@ -1,5 +1,6 @@
 import socket
 import logging
+import threading
 from . import utils as u
 from . import protocol as p
 
@@ -18,7 +19,9 @@ class Server:
         self._notificaciones    = 0
         self._sorteo_realizado  = False
         self._pending_queries   = {}  
-        self._ganadores         = {}  
+        self._ganadores         = {} 
+        self._lock              = threading.RLock() # Lock Reentrante
+
 
     def run(self):
         """
@@ -38,7 +41,12 @@ class Server:
                 except OSError:
                     break
 
-                self.__handle_client_connection(client_sock)
+                t = threading.Thread(
+                    target=self.__handle_client_connection,
+                    args=(client_sock,),
+                    daemon=True
+                )
+                t.start()
         finally:
             self._graceful_shut()
 
@@ -95,7 +103,8 @@ class Server:
         """Procesa un mensaje con type=bet."""
         try:
             bet = self._parse_bet(data)
-            u.store_bets([bet])  # store_bets espera lista
+            with self._lock:
+                u.store_bets([bet])  # store_bets espera lista
             logging.info(
                 f"action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}"
             )
@@ -108,7 +117,8 @@ class Server:
         """Procesa un mensaje con type=batch."""
         try:
             bets = self._parse_batch(data["bets"])
-            u.store_bets(bets)
+            with self._lock:
+                u.store_bets(bets)
             logging.info(
                 f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
             )
@@ -120,22 +130,24 @@ class Server:
         
     def _handle_notify(self, data: dict) -> dict:
         """Procesa un mensaje con type=notify_end"""
-        self._notificaciones += 1
-        logging.info(f"action: notify_end | result: success | agency: {data['agency']} | total: {self._notificaciones}")
-        if self._notificaciones == self._total_clients:
-            logging.info("action: all_clients_notified | result: success")
-            self._run_sorteo()
+        with self._lock:
+            self._notificaciones += 1
+            logging.info(f"action: notify_end | result: success | agency: {data['agency']} | total: {self._notificaciones}")
+            if self._notificaciones == self._total_clients:
+                logging.info("action: all_clients_notified | result: success")
+                self._run_sorteo()
         return {"type": "confirmation", "result": "success"}
 
     def _handle_query(self, data: dict, client_sock) -> dict:
         """Procesa un mensaje con type=query_winners"""
         agency = data["agency"]
-        if not self._sorteo_realizado:
-            # guardo este socket para responder más tarde
-            self._pending_queries.setdefault(agency, []).append(client_sock)
-            logging.info(f"action: consulta_ganadores | result: in_progress | agency: {agency}")
-            return {"type": "pending"}
-        winners = self._ganadores.get(agency, [])
+        with self._lock:
+            if not self._sorteo_realizado:
+                # guardo este socket para responder más tarde
+                self._pending_queries.setdefault(agency, []).append(client_sock)
+                logging.info(f"action: consulta_ganadores | result: in_progress | agency: {agency}")
+                return {"type": "pending"}
+            winners = self._ganadores.get(agency, [])
         return {"type": "winners", "winners": winners}
 
     # ================================================ #
@@ -155,24 +167,25 @@ class Server:
     
     def _run_sorteo(self):
         """Calcula ganadores por agencia."""
-        all_bets = list(u.load_bets())
-        self._ganadores = {}
-        for bet in all_bets:
-            if u.has_won(bet):
-                self._ganadores.setdefault(bet.agency, []).append(bet.document)
-        self._sorteo_realizado = True
-        logging.info("action: sorteo | result: success")
+        with self._lock:
+            all_bets = list(u.load_bets())
+            self._ganadores = {}
+            for bet in all_bets:
+                if u.has_won(bet):
+                    self._ganadores.setdefault(bet.agency, []).append(bet.document)
+            self._sorteo_realizado = True
+            logging.info("action: sorteo | result: success")
 
-        for agency, sockets in self._pending_queries.items():
-            winners = self._ganadores.get(agency, [])
-            for s in sockets:
-                try:
-                    p.send_winners(s, winners)
-                except Exception as e:
-                    logging.error(f"action: consulta_ganadores | result: fail | agency: {agency} | error: {e}")
-                finally:
-                    s.close()
-        self._pending_queries.clear()
+            for agency, sockets in self._pending_queries.items():
+                winners = self._ganadores.get(agency, [])
+                for s in sockets:
+                    try:
+                        p.send_winners(s, winners)
+                    except Exception as e:
+                        logging.error(f"action: consulta_ganadores | result: fail | agency: {agency} | error: {e}")
+                    finally:
+                        s.close()
+            self._pending_queries.clear()
 
     def _parse_batch(self, data:list[dict]) -> list[u.Bet]:
         """Convierte un dict a una lista de Bets validadas."""
