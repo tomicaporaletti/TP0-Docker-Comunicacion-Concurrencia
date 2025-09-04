@@ -123,6 +123,7 @@ class Server:
         self._notificaciones += 1
         logging.info(f"action: notify_end | result: success | agency: {data['agency']} | total: {self._notificaciones}")
         if self._notificaciones == self._total_clients:
+            logging.info("action: all_clients_notified | result: success")
             self._run_sorteo()
         return {"type": "confirmation", "result": "success"}
 
@@ -168,8 +169,9 @@ class Server:
             for s in sockets:
                 try:
                     p.send_winners(s, winners)
+                    logging.info(f"action: send_winners | result: success | agency: {agency} | cant_ganadores: {len(winners)}")
                 except Exception as e:
-                    logging.error(f"error sending winners to agency {agency}: {e}")
+                    logging.error(f"action: send_winners | result: fail | agency: {agency} | error: {e}")
                 finally:
                     s.close()
         self._pending_queries.clear()

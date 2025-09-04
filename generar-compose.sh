@@ -10,7 +10,7 @@ fi
 OUTPUT_FILE="$1"
 NUM_CLIENTS="$2"
 
-cat > "$OUTPUT_FILE" <<'YAML'
+cat > "$OUTPUT_FILE" <<YAML
 name: tp0
 services:
   server:
