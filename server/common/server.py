@@ -200,6 +200,13 @@ class Server:
         """
         try:
             self._server_socket.close()
+            for agency, sockets in self._pending_queries.items():
+                for s in sockets:
+                    try:
+                        s.close()
+                    except:
+                        pass
+            self._pending_queries.clear()
             logging.info("action: server_socket_close | result: success")
         except OSError as e:
             logging.error(f"action: server_socket_close | result: fail | error: {e}")
