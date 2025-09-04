@@ -378,6 +378,32 @@ En este ejercicio es importante considerar los mecanismos de sincronización a u
 
 Modificar el servidor para que permita aceptar conexiones y procesar mensajes en paralelo. En caso de que el alumno implemente el servidor en Python utilizando _multithreading_,  deberán tenerse en cuenta las [limitaciones propias del lenguaje](https://wiki.python.org/moin/GlobalInterpreterLock).
 
+Decisiones de implementación
+
+1. Modelo de concurrencia: hilos por conexión
+- Por cada conexión aceptada, el servidor crea un hilo (threading.Thread) dedicado a procesar los mensajes de ese cliente.
+- Esto simplifica la lógica: cada cliente se atiende en paralelo y no bloquea la recepción de otros.
+
+2. Problema del GIL en Python
+- Python tiene el Global Interpreter Lock (GIL), que limita la ejecución concurrente de threads a nivel CPU.
+- Sin embargo, nuestro servidor pasa la mayor parte del tiempo en operaciones de E/S (sockets, archivos), donde el GIL se libera automáticamente.
+- Por lo tanto, usar hilos sigue siendo beneficioso para manejar múltiples conexiones simultáneamente.
+
+3. Sincronización de recursos compartidos
+- El archivo bets.csv es el recurso central de persistencia: múltiples hilos pueden escribir (store_bets) o leer (load_bets) al mismo tiempo.
+- Para evitar corrupción de datos, se protegieron estas operaciones con un lock reentrante (threading.RLock).
+- El RLock permite que el mismo hilo pueda volver a tomar el lock si ya lo tenía (por ejemplo, _handle_notify llama a _run_sorteo, que también necesita lock).
+
+4. Secciones críticas protegidas
+- Escritura de apuestas (store_bets)
+- Lectura de apuestas para calcular ganadores (load_bets)
+- Modificación de contadores y estructuras internas (_notificaciones, _ganadores, _pending_queries)
+
+Esto asegura que el estado interno del servidor siempre sea consistente, incluso con múltiples clientes activos.
+
+5. Shutdown seguro
+- El graceful shutdown sigue funcionando: el socket de escucha se cierra al recibir la señal de fin y los hilos activos terminan naturalmente al cerrar cada conexión.
+
 ## TESTS
 ### Primera vez corriendo los tests - SetUp
 1. Clonar el repo de tests:
