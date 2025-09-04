@@ -133,7 +133,7 @@ class Server:
         if not self._sorteo_realizado:
             # guardo este socket para responder más tarde
             self._pending_queries.setdefault(agency, []).append(client_sock)
-            logging.info(f"action: consulta_ganadores | result: pending | agency: {agency}")
+            logging.info(f"action: consulta_ganadores | result: in_progress | agency: {agency}")
             return {"type": "pending"}
         winners = self._ganadores.get(agency, [])
         logging.info(f"action: consulta_ganadores | result: success | cant_ganadores: {len(winners)}")
