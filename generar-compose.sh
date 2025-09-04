@@ -20,6 +20,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - CONFIG_FILE=/config/config.ini
+      - TOTAL_CLIENTS=${NUM_CLIENTS}
     networks:
       - testing_net
     volumes:

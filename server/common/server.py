@@ -4,7 +4,7 @@ from . import utils as u
 from . import protocol as p
 
 class Server:
-    def __init__(self, port, listen_backlog):
+    def __init__(self, port, listen_backlog, total_clients):
         # Initialize server socket
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # === Socket config === #
@@ -14,6 +14,7 @@ class Server:
         self._server_socket.settimeout(1.0)
         self._shutdown = False
         # ===================== #
+        self._total_clients     = total_clients
         self._notificaciones    = 0
         self._sorteo_realizado  = False
         self._pending_queries   = {}  
@@ -52,7 +53,7 @@ class Server:
     def __handle_client_connection(self, client_sock):
         try:
             data = p.recv_message(client_sock)
-            resp = self.__process_msg(data)
+            resp = self.__process_msg(data, client_sock)
             if resp["type"] == "confirmation":
                 p.send_confirmation(client_sock, resp.get("result") == "success")
                 client_sock.close()
@@ -70,7 +71,7 @@ class Server:
             client_sock.close()
 
 
-    def __process_msg(self, data: dict) -> dict:
+    def __process_msg(self, data: dict, client_sock) -> dict:
         """Procesa un mensaje y delega según el type."""
         msg_type = data.get("type")
         if msg_type == "bet":
@@ -80,7 +81,7 @@ class Server:
         elif msg_type == "notify_end":
             return self._handle_notify(data)
         elif msg_type == "query_winners":
-            return self._handle_query(data)
+            return self._handle_query(data, client_sock)
         else:
             logging.error(f"action: process_msg | result: fail | error: unknown_type | type: {msg_type}")
             return {"type": "error", "reason": "unknown_type"}
@@ -121,11 +122,11 @@ class Server:
         """Procesa un mensaje con type=notify_end"""
         self._notificaciones += 1
         logging.info(f"action: notify_end | result: success | agency: {data['agency']} | total: {self._notificaciones}")
-        if self._notificaciones == 5:
+        if self._notificaciones == self._total_clients:
             self._run_sorteo()
         return {"type": "confirmation", "result": "success"}
 
-    def _handle_query(self, data: dict, client_sock=None) -> dict:
+    def _handle_query(self, data: dict, client_sock) -> dict:
         """Procesa un mensaje con type=query_winners"""
         agency = data["agency"]
         if not self._sorteo_realizado:
