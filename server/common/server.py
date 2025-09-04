@@ -188,6 +188,7 @@ class Server:
         Then connection created is printed and returned
         """
         c, addr = self._server_socket.accept()
+        c.settimeout(None) 
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
 

@@ -155,7 +155,6 @@ func (c *Client) queryWinners(agencyID int) {
 		return
 	}
 	defer c.conn.Close()
-	_ = c.conn.SetDeadline(time.Now().Add(60 * time.Second))
 
 	payload, _ := SerializeQueryWinners(agencyID)
 	if err := writeAll(c.conn, payload); err != nil {
