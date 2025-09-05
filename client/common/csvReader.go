@@ -54,141 +54,104 @@ func (br *BatchFileReader) FileOffset() (int64, error) {
 	return br.file.Seek(0, io.SeekCurrent)
 }
 
-
-// Next devuelve el próximo batch (slice de BetRecord) y, opcionalmente, el offset
-// final luego de leer ese batch. Si no hay más datos, err == io.EOF.
+// Next construye y devuelve el próximo batch que cumpla con los límites de
+// cantidad y tamaño. Si no hay más datos, retorna io.EOF. No mantiene estado
+// adicional salvo el del propio csv.Reader.
 func (br *BatchFileReader) Next() ([]BetRecord, int64, error) {
 	if br.closed {
 		return nil, 0, io.EOF
 	}
-
-	var batch []BetRecord
-	currentSize := br.headerLen
-
+	batch := make([]BetRecord, 0, br.maxPerB)
+	curSize := br.headerLen
 	for {
-		row, err := br.reader.Read()
+		row, eof, err := br.readRow()
+		if eof {
+			return br.flushIfAny(batch)
+		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				if len(batch) > 0 {
-					off, _ := br.FileOffset()
-					return batch, off, nil
-				}
-				return nil, 0, io.EOF
+			continue
+		}
+		rec, ok := br.parseRow(row)
+		if !ok {
+			continue
+		}
+		ok, newSize := br.tryFit(&batch, curSize, rec)
+		if ok {
+			curSize = newSize
+			if len(batch) >= br.maxPerB {
+				return br.ret(batch)
 			}
-			// línea inválida -> la saltamos y seguimos
-			log.Errorf("action: csv_read | result: skip_row | error: %v", err)
 			continue
 		}
-
-		// Esperamos formato: [FirstName, LastName, Document, Birthdate, Number]
-		num, convErr := strconv.Atoi(row[4])
-		if convErr != nil {
-			log.Errorf("action: csv_parse | result: skip_row | number: %q | error: %v", row[4], convErr)
-			continue
+		if len(batch) > 0 {
+			return br.ret(batch)
 		}
-
-		rec := BetRecord{
-			Agency:    br.agencyID,
-			FirstName: row[0],
-			LastName:  row[1],
-			Document:  row[2],
-			Birthdate: row[3],
-			Number:    num,
-		}
-
-		betBytes, serErr := SerializeOneBet(rec)
-		if serErr != nil {
-			log.Errorf("action: bet_serialize | result: skip_row | error: %v", serErr)
-			continue
-		}
-		betSize := len(betBytes)
-
-		
-		if len(batch) >= br.maxPerB || currentSize+betSize > br.limit {
-			if len(batch) > 0 {
-				off, _ := br.FileOffset()
-				return batch, off, nil
-			}
-			log.Errorf("action: bet_oversize | result: drop_record | bet_bytes: %d | limit: %d", betSize, br.limit-br.headerLen)
-			continue
-		}
-
-		batch = append(batch, rec)
-		currentSize += betSize
-
-		if len(batch) >= br.maxPerB {
-			off, _ := br.FileOffset()
-			return batch, off, nil
-		}
-
+		log.Errorf("action: bet_oversize | result: drop_record")
 	}
 }
 
-
-// readBetsFromCSV abre el archivo y devuelve todas las apuestas
-func readBetsFromCSV(path string, agencyID int) ([]BetRecord, error) {
-	f, err := os.Open(path)
+// readRow lee una fila del CSV y normaliza los casos de error y EOF.
+// Devuelve la fila, un booleano indicando EOF, y un error si corresponde.
+func (br *BatchFileReader) readRow() ([]string, bool, error) {
+	row, err := br.reader.Read()
 	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	reader := csv.NewReader(f)
-	reader.TrimLeadingSpace = true
-
-	var bets []BetRecord
-	for {
-		row, err := reader.Read()
-		if err != nil {
-			break // EOF
+		if errors.Is(err, io.EOF) {
+			return nil, true, nil
 		}
-		// row: [FirstName, LastName, Document, Birthdate, Number]
-		num, _ := strconv.Atoi(row[4])
-		bets = append(bets, BetRecord{
-			Agency:    agencyID,
-			FirstName: row[0],
-			LastName:  row[1],
-			Document:  row[2],
-			Birthdate: row[3],
-			Number:    num,
-		})
+		log.Errorf("action: csv_read | result: skip_row | error: %v", err)
+		return nil, false, err
 	}
-	return bets, nil
+	return row, false, nil
 }
 
-// splitIntoBatches corta una lista de bets en sublistas que cumplen:
-//  - como maximo "max" bets
-//  - el tamaño serializado total no supera los 8KB
-func splitIntoBatches(bets []BetRecord, max int) [][]BetRecord {
-    const limit = 8 * 1024 // 8 KB
-    var batches [][]BetRecord
-    var current []BetRecord
-    currentSize := 1 + 2 // [1 byte type] + [2 bytes cantidad]
+// parseRow valida y transforma la fila leída en un BetRecord. Devuelve el
+// registro y si la conversión fue exitosa (para poder descartar filas inválidas).
+func (br *BatchFileReader) parseRow(row []string) (BetRecord, bool) {
+	if len(row) < 5 {
+		log.Errorf("action: csv_parse | result: skip_row | reason: columns")
+		return BetRecord{}, false
+	}
+	num, err := strconv.Atoi(row[4])
+	if err != nil {
+		log.Errorf("action: csv_parse | result: skip_row | number: %q | error: %v", row[4], err)
+		return BetRecord{}, false
+	}
+	return BetRecord{
+		Agency:    br.agencyID,
+		FirstName: row[0],
+		LastName:  row[1],
+		Document:  row[2],
+		Birthdate: row[3],
+		Number:    num,
+	}, true
+}
 
-    for _, bet := range bets {
-        betBytes, err := SerializeOneBet(bet)
-        if err != nil {
-			log.Errorf("action: Batch Serialization | result: fail | error: %v",err)
-            continue
-        }
-        betSize := len(betBytes)
+// tryFit estima el tamaño serializado del registro y decide si entra en el batch
+// según el límite de bytes y el máximo de elementos. Si entra, lo agrega.
+func (br *BatchFileReader) tryFit(batch *[]BetRecord, curSize int, rec BetRecord) (bool, int) {
+	b, err := SerializeOneBet(rec)
+	if err != nil {
+		log.Errorf("action: bet_serialize | result: skip_row | error: %v", err)
+		return false, curSize
+	}
+	if len(*batch) >= br.maxPerB || curSize+len(b) > br.limit {
+		return false, curSize
+	}
+	*batch = append(*batch, rec)
+	return true, curSize + len(b)
+}
 
-        // Si agregar esta bet supera límite de 8KB o max cantidad → flush
-        if len(current) >= max || currentSize+betSize > limit {
-            if len(current) > 0 {
-                batches = append(batches, current)
-            }
-            current = []BetRecord{}
-            currentSize = 1 + 2
-        }
+// ret empaqueta el batch actual junto con el offset de archivo para logging.
+func (br *BatchFileReader) ret(batch []BetRecord) ([]BetRecord, int64, error) {
+	off, _ := br.FileOffset()
+	return batch, off, nil
+}
 
-        current = append(current, bet)
-        currentSize += betSize
-    }
-
-    if len(current) > 0 {
-        batches = append(batches, current)
-    }
-
-    return batches
+// flushIfAny devuelve el batch si contiene elementos; de lo contrario, io.EOF.
+// Se usa al alcanzar el final del archivo.
+func (br *BatchFileReader) flushIfAny(batch []BetRecord) ([]BetRecord, int64, error) {
+	if len(batch) > 0 {
+		return br.ret(batch)
+	}
+	return nil, 0, io.EOF
 }

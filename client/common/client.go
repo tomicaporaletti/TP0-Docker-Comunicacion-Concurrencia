@@ -64,11 +64,10 @@ func (c *Client) createClientSocket() error {
 
 
 
-// Bucle principal del cliente, cortable por signal vía ctx
+// StartClientLoop implementa el bucle principal: lee batches en streaming desde
+// el CSV y los envía secuencialmente; al finalizar, notifica el fin y consulta ganadores.
 func (c *Client) StartClientLoop(ctx context.Context, maxBatch int) {
 	agencyID, _ := strconv.Atoi(c.config.ID)
-
-	// 1) Crear lector por batches (streaming)
 	br, err := NewBatchFileReader(c.config.DataFile, agencyID, maxBatch)
 	if err != nil {
 		log.Criticalf("action: read_csv_open | result: fail | error: %v", err)
@@ -76,48 +75,75 @@ func (c *Client) StartClientLoop(ctx context.Context, maxBatch int) {
 	}
 	defer br.Close()
 
-	for {
-		// 2) Permitir cancelación
-		select {
-		case <-ctx.Done():
-			c.cleanup()
-			return
-		default:
-		}
+	if err := c.loopBatches(ctx, br); err != nil {
+		return
+	}
+	c.finishProtocol(agencyID)
+}
 
-		// 3) Pedir el próximo batch desde el archivo (sin cargar todo)
+// loopBatches itera pidiendo batches al lector y enviándolos; respeta cancelación
+// por contexto y pacing entre envíos.
+func (c *Client) loopBatches(ctx context.Context, br *BatchFileReader) error {
+	for {
+		if c.ctxCancelled(ctx) {
+			c.cleanup()
+			return errors.New("cancelled")
+		}
 		batch, off, err := br.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
 			log.Errorf("action: batch_next | result: fail | error: %v", err)
-			// si hay un error no-EOF, podés decidir: retry, skip, o abortar. Acá abortamos.
-			return
+			return err
 		}
-
-		// 4) Enviar el batch
-		if len(batch) > 0 {
-			if err := c.sendBatch(batch); err != nil {
-				// Podrías loguear offset para debug
-				log.Errorf("action: send_batch | result: fail | file_offset: %d | error: %v", off, err)
-				return
-			}
-			log.Infof("action: batch_sent | result: success | count: %d | file_offset: %d", len(batch), off)
+		if err := c.sendIfAny(batch, off); err != nil {
+			return err
 		}
-
-		// 5) Respeto de pacing entre envíos
-		select {
-		case <-ctx.Done():
+		if c.waitOrCancel(ctx, c.config.LoopPeriod) {
 			c.cleanup()
-			return
-		case <-time.After(c.config.LoopPeriod):
+			return errors.New("cancelled")
 		}
 	}
-
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+	return nil
+}
 
-	// Notificar fin y consultar ganadores
+// sendIfAny envía un batch no vacío y registra métricas/offset para debugging.
+func (c *Client) sendIfAny(batch []BetRecord, off int64) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	if err := c.sendBatch(batch); err != nil {
+		log.Errorf("action: send_batch | result: fail | file_offset: %d | error: %v", off, err)
+		return err
+	}
+	log.Infof("action: batch_sent | result: success | count: %d | file_offset: %d", len(batch), off)
+	return nil
+}
+
+// waitOrCancel espera el período configurado o sale si el contexto fue cancelado.
+func (c *Client) waitOrCancel(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+// ctxCancelled consulta no bloqueante si el contexto ya fue cancelado.
+func (c *Client) ctxCancelled(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// finishProtocol ejecuta el protocolo de cierre: notifica fin y consulta ganadores.
+func (c *Client) finishProtocol(agencyID int) {
 	if err := c.notifyEnd(agencyID); err != nil {
 		return
 	}
