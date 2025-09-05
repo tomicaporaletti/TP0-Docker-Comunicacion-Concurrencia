@@ -37,7 +37,7 @@ class Server:
                 try:
                     client_sock = self.__accept_new_connection()
                 except socket.timeout:
-
+                    self._clean_dead_threads()
                     continue
                 except OSError:
                     break

@@ -2,6 +2,8 @@ package common
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -65,34 +67,62 @@ func (c *Client) createClientSocket() error {
 // Bucle principal del cliente, cortable por signal vía ctx
 func (c *Client) StartClientLoop(ctx context.Context, maxBatch int) {
 	agencyID, _ := strconv.Atoi(c.config.ID)
-    bets, err := readBetsFromCSV(c.config.DataFile, agencyID)
-    if err != nil {
-        log.Criticalf("action: read_csv | result: fail | error: %v", err)
-        return
-    }
 
-    batches := splitIntoBatches(bets, maxBatch)
-    for _, batch := range batches {
-        select {
-        case <-ctx.Done():
-            c.cleanup()
-            return
-        default:
-            if err := c.sendBatch(batch); err != nil {
-                return
-            }
-            time.Sleep(c.config.LoopPeriod)
-        }
-    }
-    log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+	// 1) Crear lector por batches (streaming)
+	br, err := NewBatchFileReader(c.config.DataFile, agencyID, maxBatch)
+	if err != nil {
+		log.Criticalf("action: read_csv_open | result: fail | error: %v", err)
+		return
+	}
+	defer br.Close()
 
+	for {
+		// 2) Permitir cancelación
+		select {
+		case <-ctx.Done():
+			c.cleanup()
+			return
+		default:
+		}
+
+		// 3) Pedir el próximo batch desde el archivo (sin cargar todo)
+		batch, off, err := br.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			log.Errorf("action: batch_next | result: fail | error: %v", err)
+			// si hay un error no-EOF, podés decidir: retry, skip, o abortar. Acá abortamos.
+			return
+		}
+
+		// 4) Enviar el batch
+		if len(batch) > 0 {
+			if err := c.sendBatch(batch); err != nil {
+				// Podrías loguear offset para debug
+				log.Errorf("action: send_batch | result: fail | file_offset: %d | error: %v", off, err)
+				return
+			}
+			log.Infof("action: batch_sent | result: success | count: %d | file_offset: %d", len(batch), off)
+		}
+
+		// 5) Respeto de pacing entre envíos
+		select {
+		case <-ctx.Done():
+			c.cleanup()
+			return
+		case <-time.After(c.config.LoopPeriod):
+		}
+	}
+
+	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+
+	// Notificar fin y consultar ganadores
 	if err := c.notifyEnd(agencyID); err != nil {
 		return
 	}
 	c.queryWinners(agencyID)
-
 }
-
 
 // Envia un batch entero
 func (c *Client) sendBatch(batch []BetRecord) error {
